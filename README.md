@@ -10,6 +10,8 @@ Given a function that is used as a callback for the `xmerl_sax_parser`, build a 
 * Skipping events that are of no interest will save memory and allow the parser to focus on what is important.
 * Validity of the input should still be checked when not capturing.
 * All parsed events, regardless of original encoding, should report UTF-8 to the user. Names, text, whatever.
+* Must handle at minimum UTF-8 and UTF-16 input. Others? UCS-4? ISO*
+* XML 1.1 ??
 * More? PR your ideas here!!
 
 
