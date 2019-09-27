@@ -14,7 +14,8 @@
         ]).
 
 -type parser_state() ::
-        #{comments := boolean(),
+        #{whitespace := boolean(),
+          comments := boolean(),
           proc_inst := boolean(),
           continuation := undefined | fun(),
           tags := [qname()],
@@ -48,7 +49,8 @@ file(Filename) ->
     {<<>>, State1}.
 
 default_state() ->
-    #{comments     => true,
+    #{whitespace   => false,
+      comments     => true,
       proc_inst    => true,
       continuation => undefined,
       tags         => [],
@@ -249,6 +251,8 @@ event_processingInstruction(Target, Data, {_, #{line := Line}} = State) ->
           IsWs :: boolean(),
           State :: parser_state(),
           Event :: xml_characters().
+event_characters(_Data, _CData, _Ignorable, true, {_, #{whitespace := false}} = State) ->
+    State;
 event_characters(Data, CData, Ignorable, IsWs, {_, #{line := Line}} = State) -> 
     Event = #{type => characters,
               line => Line,
@@ -293,6 +297,7 @@ xml_endDocument() -> ok.
 -define(APPEND_STREAM(Acc, Cs), <<Acc/binary, Cs/binary>>).
 
 -define(PREPEND(Acc, Cs), if Cs < 256 -> [Acc,Cs]; true -> [Acc,<<Cs/utf8>>] end).
+-define(PREPEND_SMALL(Acc, Cs), [Acc,Cs]).
 %-define(PREPEND(Acc, Cs), if Cs < 256 -> [Cs|Acc]; true -> [<<Cs/utf8>> | Acc] end).
 
 -define(CHECK1(Bytes, State),
@@ -340,8 +345,8 @@ xml_endDocument() -> ok.
 
 %% !! only use after all whitespace is captured !!
 -define(is_not_char(C),
-        C < 16#20 orelse
-        C =:= 16#FFFE orelse
+        C < 16#20 ;
+        C =:= 16#FFFE ;
         C =:= 16#FFFF).
 
 
@@ -354,22 +359,22 @@ xml_endDocument() -> ok.
 %%                       [#x10000-#xEFFFF]
 %%----------------------------------------------------------------------
 -define(is_name_start_char(C),
-        (C >= $a andalso C =< $z) orelse 
-        C =:= $_ orelse 
-        (C >= $A andalso C =< $Z) orelse 
-        C =:= $: orelse 
-        (C >= 16#C0 andalso C =< 16#D6) orelse 
-        (C >= 16#D8 andalso C =< 16#F6) orelse 
-        (C >= 16#F8 andalso C =< 16#2FF) orelse 
-        (C >= 16#370 andalso C =< 16#37D) orelse 
-        (C >= 16#37F andalso C =< 16#1FFF) orelse 
-        (C >= 16#200C andalso C =< 16#200D) orelse 
-        (C >= 16#2070 andalso C =< 16#218F) orelse 
-        (C >= 16#2C00 andalso C =< 16#2FEF) orelse 
-        (C >= 16#3001 andalso C =< 16#D7FF) orelse 
-        (C >= 16#F900 andalso C =< 16#FDCF) orelse 
-        (C >= 16#FDF0 andalso C =< 16#FFFD) orelse 
-        (C >= 16#10000 andalso C =< 16#EFFFF)
+        C >= $a , C =< $z ; 
+        C >= $A , C =< $Z ; 
+        C =:= $_ ; 
+        C =:= $: ; 
+        C >= 16#C0 , C =< 16#D6 ; 
+        C >= 16#D8 , C =< 16#F6 ; 
+        C >= 16#F8 , C =< 16#2FF ; 
+        C >= 16#370 , C =< 16#37D ; 
+        C >= 16#37F , C =< 16#1FFF ; 
+        C >= 16#200C , C =< 16#200D ; 
+        C >= 16#2070 , C =< 16#218F ; 
+        C >= 16#2C00 , C =< 16#2FEF ; 
+        C >= 16#3001 , C =< 16#D7FF ; 
+        C >= 16#F900 , C =< 16#FDCF ; 
+        C >= 16#FDF0 , C =< 16#FFFD ; 
+        C >= 16#10000 , C =< 16#EFFFF
        ).
 
 %%----------------------------------------------------------------------
@@ -378,41 +383,38 @@ xml_endDocument() -> ok.
 %%                   [#x0300-#x036F] | [#x203F-#x2040] 
 %%----------------------------------------------------------------------
 -define(is_name_char(C),
-        (C >= $a andalso C =< $z) orelse 
-        C =:= $_ orelse 
-        (C >= $A andalso C =< $Z) orelse 
-        C =:= $- orelse 
-        C =:= $. orelse 
-        (C >= $0 andalso C =< $9) orelse 
-        C =:= $: orelse 
-        C =:= 16#B7 orelse 
-        (C >= 16#C0 andalso C =< 16#D6) orelse 
-        (C >= 16#D8 andalso C =< 16#F6) orelse 
-        (C >= 16#F8 andalso C =< 16#2FF) orelse 
-        (C >= 16#300 andalso C =< 16#36F) orelse 
-        (C >= 16#370 andalso C =< 16#37D) orelse 
-        (C >= 16#37F andalso C =< 16#1FFF) orelse 
-        (C >= 16#200C andalso C =< 16#200D) orelse 
-        (C >= 16#203F andalso C =< 16#2040) orelse
-        (C >= 16#2070 andalso C =< 16#218F) orelse 
-        (C >= 16#2C00 andalso C =< 16#2FEF) orelse 
-        (C >= 16#3001 andalso C =< 16#D7FF) orelse 
-        (C >= 16#F900 andalso C =< 16#FDCF) orelse 
-        (C >= 16#FDF0 andalso C =< 16#FFFD) orelse 
-        (C >= 16#10000 andalso C =< 16#EFFFF)
+        C >= $a , C =< $z ; 
+        C =:= $_ ; 
+        C >= $A , C =< $Z ; 
+        C =:= $- ; 
+        C =:= $. ; 
+        C >= $0 , C =< $9 ; 
+        C =:= $: ; 
+        C =:= 16#B7 ; 
+        C >= 16#C0 , C =< 16#D6 ; 
+        C >= 16#D8 , C =< 16#F6 ; 
+        C >= 16#F8 , C =< 16#2FF ; 
+        C >= 16#300 , C =< 16#36F ; 
+        C >= 16#370 , C =< 16#37D ; 
+        C >= 16#37F , C =< 16#1FFF ; 
+        C >= 16#200C , C =< 16#200D ; 
+        C >= 16#203F , C =< 16#2040 ;
+        C >= 16#2070 , C =< 16#218F ; 
+        C >= 16#2C00 , C =< 16#2FEF ; 
+        C >= 16#3001 , C =< 16#D7FF ; 
+        C >= 16#F900 , C =< 16#FDCF ; 
+        C >= 16#FDF0 , C =< 16#FFFD ; 
+        C >= 16#10000 , C =< 16#EFFFF
        ).
 
 %%----------------------------------------------------------------------
 %% [13] PubidChar ::= #x20 | #xD | #xA | [a-zA-Z0-9] | [-'()+,./:=?;!*#@$_%]
 %%----------------------------------------------------------------------
 -define(is_pubid_char(C),
-        C =:= 16#0A orelse C =:= 16#0D orelse C =:= 16#5F orelse
-        (C >= 16#61 andalso C =< 16#7A) orelse
-        (C >= 16#20 andalso C =< 16#5A andalso
-         C =/= 16#22 andalso
-         C =/= 16#26 andalso
-         C =/= 16#3C andalso
-         C =/= 16#3E)).
+        C =:= 16#0A ; C =:= 16#0D ; C =:= 16#5F ;
+        C >= 16#61 , C =< 16#7A ;
+        C >= 16#20 , C =< 16#5A , C =/= 16#22 ,
+         C =/= 16#26 , C =/= 16#3C , C =/= 16#3E).
 
 
 %% -spec parse_S(State) -> {WS, State}
@@ -526,10 +528,10 @@ parse_Name_1(?EMPTY, State, Acc) ->
             parse_Name_1(Bytes, State1, Acc)
     end;
 parse_Name_1(?CHARS_REST(C, Rest) = Stream, State, Acc) ->
-    case ?is_name_char(C) of
-        true ->
+    if
+        ?is_name_char(C) ->
             parse_Name_1(Rest, State, ?PREPEND(Acc, C));
-        false ->
+        true ->
             {iolist_to_binary(Acc), {Stream, State}}
     end;
 ?CHECK2(A, B, C).
@@ -1011,15 +1013,15 @@ parse_CharData(?CHARS_REST("&", _) = Stream, State, IsWs, Acc) ->
 parse_CharData(?CHARS_REST("]]>", _), State, _, _) ->
     fatal_error(bad_char_data, State);
 parse_CharData(?CHARS_REST("\n", Rest), State, IsWs, Acc) ->
-    parse_CharData(Rest, ?bl(State), IsWs, ?PREPEND(Acc, ?lf));
+    parse_CharData(Rest, ?bl(State), IsWs, ?PREPEND_SMALL(Acc, ?lf));
 parse_CharData(?CHARS_REST("\r\n", Rest), State, IsWs, Acc) ->
-    parse_CharData(Rest, ?bl(State), IsWs, ?PREPEND(Acc, ?lf));
+    parse_CharData(Rest, ?bl(State), IsWs, ?PREPEND_SMALL(Acc, ?lf));
 parse_CharData(?CHARS_REST("\r", Rest), State, IsWs, Acc) ->
-    parse_CharData(Rest, ?bl(State), IsWs, ?PREPEND(Acc, ?lf));
+    parse_CharData(Rest, ?bl(State), IsWs, ?PREPEND_SMALL(Acc, ?lf));
 parse_CharData(?CHARS_REST(" ", Rest), State, IsWs, Acc) ->
-    parse_CharData(Rest, State, IsWs, ?PREPEND(Acc, ?space));
+    parse_CharData(Rest, State, IsWs, ?PREPEND_SMALL(Acc, ?space));
 parse_CharData(?CHARS_REST("\t", Rest), State, IsWs, Acc) ->
-    parse_CharData(Rest, State, IsWs, ?PREPEND(Acc, ?tab));
+    parse_CharData(Rest, State, IsWs, ?PREPEND_SMALL(Acc, ?tab));
 parse_CharData(?CHARS_REST(C, Rest), State, _IsWs, Acc) ->
     if
         ?is_not_char(C) ->
@@ -1034,7 +1036,7 @@ parse_CharData(?CHARS_REST(C, Rest), State, _IsWs, Acc) ->
 %%         when State :: parser_state(),
 %%              CDSect :: xml_characters().
 %%----------------------------------------------------------------------
-%% Parse CDATA Section. '<![CDATA[' is already removed. 
+%% Parse CDATA Section. '<![' is already removed. 
 %% params:  State
 %% returns: {CharData, IsWs, NewState}
 %% [18] CDSect  ::= CDStart CData CDEnd
@@ -1042,8 +1044,28 @@ parse_CharData(?CHARS_REST(C, Rest), State, _IsWs, Acc) ->
 %% [20] CData   ::= (Char* - (Char* ']]>' Char*))
 %% [21] CDEnd   ::= ']]>'
 %%----------------------------------------------------------------------
-parse_CDSect(Stream, State) -> 
-    parse_CDSect(Stream, State, [], true).
+parse_CDSect(Stream, State)
+    when Stream == ?CHARS("<![");
+         Stream == ?CHARS("<![C");
+         Stream == ?CHARS("<![CD");
+         Stream == ?CHARS("<![CDA");
+         Stream == ?CHARS("<![CDAT");
+         Stream == ?CHARS("<![CDATA") ->
+    case cf(Stream, State) of
+        {error, Reason, PState1} ->
+            fatal_error(Reason, PState1);
+        {?EMPTY, State1} ->
+            State1;
+        {Stream, _} = PState1 ->
+            fatal_error(bad_cdata, PState1);
+        {Bytes, State1} ->
+            parse_CDSect(Bytes, State1)
+    end;
+parse_CDSect(?CHARS_REST("<![CDATA[", Rest), State) ->
+    parse_CDSect(Rest, State, ?EMPTY, true);
+parse_CDSect(?CHARS_REST(_, _), State) ->
+    fatal_error(bad_cdata, State);
+?CHECK1(A, B).
 
 parse_CDSect(Stream, State, Acc, IsWs)
     when Stream == ?EMPTY;
@@ -1061,13 +1083,13 @@ parse_CDSect(Stream, State, Acc, IsWs)
 parse_CDSect(?CHARS_REST("]]>", Rest), State, Acc, IsWs) ->
      event_characters(Acc, true, false, IsWs, {Rest, State});
 parse_CDSect(?CHARS_REST("\n", Rest), State, Acc, IsWs) ->
-    parse_CDSect(Rest, ?bl(State), ?PREPEND(Acc, ?lf), IsWs);
+    parse_CDSect(Rest, ?bl(State), ?PREPEND_SMALL(Acc, ?lf), IsWs);
 parse_CDSect(?CHARS_REST("\r\n", Rest), State, Acc, IsWs) ->
-    parse_CDSect(Rest, ?bl(State), ?PREPEND(Acc, ?lf), IsWs);
+    parse_CDSect(Rest, ?bl(State), ?PREPEND_SMALL(Acc, ?lf), IsWs);
 parse_CDSect(?CHARS_REST("\r", Rest), State, Acc, IsWs) ->
-    parse_CDSect(Rest, ?bl(State), ?PREPEND(Acc, ?lf), IsWs);
+    parse_CDSect(Rest, ?bl(State), ?PREPEND_SMALL(Acc, ?lf), IsWs);
 parse_CDSect(?CHARS_REST(C, Rest), State, Acc, IsWs) when ?is_whitespace(C) ->
-    parse_CDSect(Rest, State, ?PREPEND(Acc, C), IsWs);
+    parse_CDSect(Rest, State, ?PREPEND_SMALL(Acc, C), IsWs);
 parse_CDSect(?CHARS_REST(C, Rest), State, Acc, true) when ?is_char(C) ->
     parse_CDSect(Rest, State, ?PREPEND(Acc, C), false);
 parse_CDSect(?CHARS_REST(C, Rest), State, Acc, IsWs) when ?is_char(C) ->
@@ -1470,13 +1492,7 @@ parse_content(Stream, State)
     when Stream == ?EMPTY;
          Stream == ?CHARS("<");
          Stream == ?CHARS("<!");
-         Stream == ?CHARS("<!-");
-         Stream == ?CHARS("<![");
-         Stream == ?CHARS("<![C");
-         Stream == ?CHARS("<![CD");
-         Stream == ?CHARS("<![CDA");
-         Stream == ?CHARS("<![CDAT");
-         Stream == ?CHARS("<![CDATA") ->
+         Stream == ?CHARS("<!-") ->
     case cf(Stream, State) of
         {error, Reason, PState1} ->
             fatal_error(Reason, PState1);
@@ -1487,22 +1503,22 @@ parse_content(Stream, State)
         {Bytes, State1} ->
             parse_content(Bytes, State1)
     end;
+parse_content(?CHARS_REST("</", Rest), State) ->
+    parse_ETag(Rest, State);
 parse_content(?CHARS_REST("<!--", Rest), State) ->
     parse_Comment(Rest, State);
 parse_content(?CHARS_REST("<?", Rest), State) ->
     parse_PI(Rest, State);
+parse_content(?CHARS_REST("<![", Rest), State) ->
+    parse_CDSect(Rest, State);
+parse_content(?CHARS_REST("<", _) = Bytes, State) ->
+    parse_element(Bytes, State);
 parse_content(?CHARS_REST("&", Rest), State) ->
     {_Name, {Rest1, State1}} = parse_Reference(Rest, State),
     %%XXX do something with the ref
     parse_content(Rest1, State1);
-parse_content(?CHARS_REST("<![CDATA[", Rest), State) ->
-    parse_CDSect(Rest, State);
-parse_content(?CHARS_REST("</", Rest), State) ->
-    parse_ETag(Rest, State);
-parse_content(?CHARS_REST("<", _) = Bytes, State) ->
-    parse_element(Bytes, State);
 parse_content(?CHARS_REST(_, _) = Bytes, State) ->
-    parse_CharData(Bytes, State, true, []);
+    parse_CharData(Bytes, State, true, ?EMPTY);
 ?CHECK1(A, B).
 
 %%----------------------------------------------------------------------
@@ -2711,7 +2727,7 @@ trim_sgt(?CHARS_REST(">", Rest), State) ->
     {Rest, State};
 trim_sgt(?CHARS_REST(C, _) = Stream, State) when ?is_whitespace(C) ->
     {_, {Rest1, State1}} = parse_S(Stream, State, ?EMPTY),
-    {Rest1, State1};
+    trim_sgt(Rest1, State1);
 trim_sgt(?CHARS_REST(_, _), State) ->
     fatal_error(bad_end, State);
 ?CHECK1(A, B).
