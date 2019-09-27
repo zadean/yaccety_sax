@@ -16,6 +16,21 @@ It works like an iterator on any set or list-like type, but returns XML events i
 * XML 1.1 ??
 * More thoughts? add your ideas here with a PR!!
 
+### some (early) numbers
+Just-for-fun parsing a 5.2 GB Wiki abstract dump with a callback that throws away all events:
+(the xmerl version used a file continuation function that reads 64 KB per file-read instead of the default 1 KB to make it the same as yaccety, otherwise it would take an hour or more.. didn't wait for it to finish)
+
+`xmerl_sax_parser` took 11 minutes and 43 seconds to parse and the process memory got to around 42 MB.
+`yaccety_sax` took 12 minutes and 17 seconds and process memory never went above 109 KB.
+
+That said, xmerl returns strings as lists and not binaries. yaccety_sax returns UTF-8 binaries.
+So, a callback that has to encode back to binary would be faster with yaccety_sax.
+The memory usage is still a pretty cool thing on its own though.
+
+I didn't attempt using the xmerl_scan on the 5.2 GB file. Not sure it's a good idea to try.
+
+I'm sure there are other parsers out there that stream-parse large data. 
+It would be cool to see how all of them react.
 
 
 ## The repo name
