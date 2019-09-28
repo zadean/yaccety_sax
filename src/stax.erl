@@ -64,7 +64,7 @@ default_state() ->
      }.
 
 default_file_continuation(Filename) ->
-    case file:open(Filename, [raw, read, binary]) of
+    case file:open(Filename, [raw, read_ahead, read, binary]) of
         {ok, FD} ->
             fun(close) ->
                    file:close(FD);
@@ -82,6 +82,8 @@ default_file_continuation(Filename) ->
         {error, _} = OpenErr ->
             OpenErr
     end.
+
+
 
 -spec get_element_text(State) -> {Text, State}
         when State :: parser_state(),
@@ -144,7 +146,8 @@ next_event({Stream, #{position := [P|Ps]} = State}) ->
                 {Event, {Bytes, State1}} ->
                     {Event, {Bytes, State1}};
                 {Stream1, State1} ->
-                    {endDocument, {Stream1, State1}}
+                    endDocument
+                    %{endDocument, {Stream1, State1}}
             end;
         _ ->
             {text, State}
@@ -330,6 +333,39 @@ xml_endDocument() -> ok.
                     {error, lists:flatten(io_lib:format("Bad character, not in ~p\n", [?ENCODING])), {Bytes, State}}
             end).
 
+-define(EMPTY1,
+        ?FUNCTION_NAME(?EMPTY, State) ->
+            case cf(?EMPTY, State) of
+                {error, Reason, PState1} ->
+                    fatal_error(Reason, PState1);
+                {?EMPTY, _} = PState1 ->
+                    fatal_error({no_bytes, ?FUNCTION_NAME}, PState1);
+                {Bytes, State1} ->
+                    ?FUNCTION_NAME(Bytes, State1)
+            end).
+
+-define(EMPTY2,
+        ?FUNCTION_NAME(?EMPTY, State, A) ->
+            case cf(?EMPTY, State) of
+                {error, Reason, PState1} ->
+                    fatal_error(Reason, PState1);
+                {?EMPTY, _} = PState1 ->
+                    fatal_error({no_bytes, ?FUNCTION_NAME}, PState1);
+                {Bytes, State1} ->
+                    ?FUNCTION_NAME(Bytes, State1, A)
+            end).
+
+-define(EMPTY3,
+        ?FUNCTION_NAME(?EMPTY, State, A, B) ->
+            case cf(?EMPTY, State) of
+                {error, Reason, PState1} ->
+                    fatal_error(Reason, PState1);
+                {?EMPTY, _} = PState1 ->
+                    fatal_error({no_bytes, ?FUNCTION_NAME}, PState1);
+                {Bytes, State1} ->
+                    ?FUNCTION_NAME(Bytes, State1, A, B)
+            end).
+
 %%----------------------------------------------------------------------
 %% XML character range
 %% [2] Char ::= #x9 | #xA | #xD | [#x20-#xD7FF] | [#xE000-#xFFFD] | 
@@ -503,30 +539,13 @@ parse_S_1(?CHARS_REST(_, _) = Bytes, State, Acc) ->
 %% returns: {Name, NewState}
 %% [5] Name ::= NameStartChar (NameChar)*          
 %%----------------------------------------------------------------------
-parse_Name(?EMPTY, State) ->
-    case cf(?EMPTY, State) of
-        {error, Reason, PState1} ->
-            fatal_error(Reason, PState1);
-        {?EMPTY, _} = PState1 ->
-            fatal_error(no_name, PState1);
-        {Bytes, State1} ->
-            parse_Name(Bytes, State1)
-    end;
 parse_Name(?CHARS_REST(C, Rest), State) when ?is_name_start_char(C) ->
     parse_Name_1(Rest, State, ?PREPEND([], C));
 parse_Name(?CHARS_REST(_, _), State) ->
     fatal_error(bad_name, State);
+?EMPTY1;
 ?CHECK1(A, B).
 
-parse_Name_1(?EMPTY, State, Acc) ->
-    case cf(?EMPTY, State) of
-        {error, Reason, PState1} ->
-            fatal_error(Reason, PState1);
-        {?EMPTY, _} = PState1 ->
-            fatal_error(no_name, PState1);
-        {Bytes, State1} ->
-            parse_Name_1(Bytes, State1, Acc)
-    end;
 parse_Name_1(?CHARS_REST(C, Rest) = Stream, State, Acc) ->
     if
         ?is_name_char(C) ->
@@ -534,6 +553,7 @@ parse_Name_1(?CHARS_REST(C, Rest) = Stream, State, Acc) ->
         true ->
             {iolist_to_binary(Acc), {Stream, State}}
     end;
+?EMPTY2;
 ?CHECK2(A, B, C).
 
 -spec parse_Nmtoken(Stream, State) -> {Nmtoken, State}
@@ -549,114 +569,65 @@ parse_Name_1(?CHARS_REST(C, Rest) = Stream, State, Acc) ->
 parse_Nmtoken(Stream, State) ->
     parse_Nmtoken(Stream, State, ?EMPTY).
 
-parse_Nmtoken(?EMPTY, State, Acc) ->
-    case cf(?EMPTY, State) of
-        {error, Reason, PState1} ->
-            fatal_error(Reason, PState1);
-        {?EMPTY, _} = PState1 ->
-            fatal_error(no_name, PState1);
-        {Bytes, State1} ->
-            parse_Nmtoken(Bytes, State1, Acc)
-    end;
 parse_Nmtoken(?CHARS_REST(C, Rest), State, Acc) when ?is_name_char(C) ->
     parse_Nmtoken_1(Rest, State, ?APPEND(Acc, C));
 parse_Nmtoken(?CHARS_REST(_, _), State, _Acc) ->
     fatal_error(bad_nmtoken, State);
+?EMPTY2;
 ?CHECK2(A, B, C).
 
-parse_Nmtoken_1(?EMPTY, State, Acc) ->
-    case cf(?EMPTY, State) of
-        {error, Reason, PState1} ->
-            fatal_error(Reason, PState1);
-        {?EMPTY, _} = PState1 ->
-            fatal_error(bad_nmtoken, PState1);
-        {Bytes, State1} ->
-            parse_Nmtoken_1(Bytes, State1, Acc)
-    end;
 parse_Nmtoken_1(?CHARS_REST(C, Rest), State, Acc) when ?is_name_char(C) ->
     parse_Nmtoken_1(Rest, State, ?APPEND(Acc, C));
 parse_Nmtoken_1(?CHARS_REST(_, _) = Bytes, State, Acc) ->
     {Acc, {Bytes, State}};
+?EMPTY2;
 ?CHECK2(A, B, C).
 
 %%----------------------------------------------------------------------
 %% XXX spec, etc. [11] 
 %%----------------------------------------------------------------------
-parse_SystemLiteral(?EMPTY, State) ->
-    case cf(?EMPTY, State) of
-        {error, Reason, PState1} ->
-            fatal_error(Reason, PState1);
-        {?EMPTY, _} = PState1 ->
-            fatal_error(bad_pubid, PState1);
-        {Bytes, State1} ->
-            parse_SystemLiteral(Bytes, State1)
-    end;
 parse_SystemLiteral(?CHARS_REST(C, Rest), State) when C == $';
                                                       C == $\" ->
     parse_SystemLiteral_1(Rest, State, ?EMPTY, C);
 parse_SystemLiteral(?CHARS_REST(_, _), State) ->
     fatal_error(bad_pubid, State);
+?EMPTY1;
 ?CHECK1(A, B).
 
-parse_SystemLiteral_1(?EMPTY, State, Acc, C) ->
-    case cf(?EMPTY, State) of
-        {error, Reason, PState1} ->
-            fatal_error(Reason, PState1);
-        {?EMPTY, _} = PState1 ->
-            fatal_error(bad_pubid, PState1);
-        {Bytes, State1} ->
-            parse_SystemLiteral_1(Bytes, State1, Acc, C)
-    end;
 parse_SystemLiteral_1(?CHARS_REST(C, Rest), State, Acc, C) ->
     {Acc, {Rest, State}};
 parse_SystemLiteral_1(?CHARS_REST(C, Rest), State, Acc, Stop) when ?is_char(C) ->
     parse_SystemLiteral_1(Rest, State, ?APPEND(Acc, C), Stop);
 parse_SystemLiteral_1(?CHARS_REST(_, _), State, _, _) ->
     fatal_error(bad_pubid, State);
+?EMPTY3;
 ?CHECK3(A, B, C, D).
 
 %%----------------------------------------------------------------------
 %% XXX spec, etc. [12] 
 %%----------------------------------------------------------------------
-parse_PubidLiteral(?EMPTY, State) ->
-    case cf(?EMPTY, State) of
-        {error, Reason, PState1} ->
-            fatal_error(Reason, PState1);
-        {?EMPTY, _} = PState1 ->
-            fatal_error(bad_pubid, PState1);
-        {Bytes, State1} ->
-            parse_PubidLiteral(Bytes, State1)
-    end;
 parse_PubidLiteral(?CHARS_REST(C, Rest), State) when C == $';
                                                      C == $\" ->
     parse_PubidLiteral_1(Rest, State, ?EMPTY, C);
 parse_PubidLiteral(?CHARS_REST(_, _), State) ->
     fatal_error(bad_pubid, State);
+?EMPTY1;
 ?CHECK1(A, B).
 
-parse_PubidLiteral_1(?EMPTY, State, Acc, C) ->
-    case cf(?EMPTY, State) of
-        {error, Reason, PState1} ->
-            fatal_error(Reason, PState1);
-        {?EMPTY, _} = PState1 ->
-            fatal_error(bad_pubid, PState1);
-        {Bytes, State1} ->
-            parse_PubidLiteral_1(Bytes, State1, Acc, C)
-    end;
 parse_PubidLiteral_1(?CHARS_REST(C, Rest), State, Acc, C) ->
     {Acc, {Rest, State}};
 parse_PubidLiteral_1(?CHARS_REST(C, Rest), State, Acc, Stop) when ?is_pubid_char(C) ->
     parse_PubidLiteral_1(Rest, State, ?APPEND(Acc, C), Stop);
 parse_PubidLiteral_1(?CHARS_REST(_, _), State, _, _) ->
     fatal_error(bad_pubid, State);
+?EMPTY3;
 ?CHECK3(A, B, C, D).
 
 %%----------------------------------------------------------------------
 %% XXX spec, etc. [66][67][68] the & char is removed
 %% can be EntityRef | CharRef
 %%----------------------------------------------------------------------
-parse_Reference(Stream, State) when Stream == ?EMPTY;
-                                    Stream == ?CHARS("#");
+parse_Reference(Stream, State) when Stream == ?CHARS("#");
                                     Stream == ?CHARS("#x") ->
     case cf(Stream, State) of
         {error, Reason, PState1} ->
@@ -672,18 +643,10 @@ parse_Reference(?CHARS_REST("#", Rest), State) ->
     parse_Reference_2(Rest, State, ?EMPTY);
 parse_Reference(?CHARS_REST(_, _) = Stream, State) ->
     parse_Reference_3(Stream, State, ?EMPTY);
+?EMPTY1;
 ?CHECK1(A, B).
 
 % hex parse until ';' return char
-parse_Reference_1(?EMPTY, State, Acc) -> 
-    case cf(?EMPTY, State) of
-        {error, Reason, PState1} ->
-            fatal_error(Reason, PState1);
-        {?EMPTY, _} = PState1 ->
-            fatal_error(bad_charref, PState1);
-        {Bytes, State1} ->
-            parse_Reference_1(Bytes, State1, Acc)
-    end;
 parse_Reference_1(?CHARS_REST(C, Rest), State, Acc)
     when (C >= $0 andalso C =< $9);
          (C >= $a andalso C =< $f);
@@ -699,18 +662,10 @@ parse_Reference_1(?CHARS_REST(";", Rest), State, Acc) ->
     end;        
 parse_Reference_1(?CHARS_REST(_, _), State, _) ->
     fatal_error(bad_charref, State);
+?EMPTY2;
 ?CHECK2(A, B, C).
 
 % decimal parse until ';' return char
-parse_Reference_2(?EMPTY, State, Acc) -> 
-    case cf(?EMPTY, State) of
-        {error, Reason, PState1} ->
-            fatal_error(Reason, PState1);
-        {?EMPTY, _} = PState1 ->
-            fatal_error(bad_charref, PState1);
-        {Bytes, State1} ->
-            parse_Reference_2(Bytes, State1, Acc)
-    end;
 parse_Reference_2(?CHARS_REST(C, Rest), State, Acc) when (C >= $0 andalso C =< $9) ->
     parse_Reference_2(Rest, State, ?APPEND(Acc, C));
 parse_Reference_2(?CHARS_REST(";", Rest), State, Acc) ->
@@ -723,18 +678,10 @@ parse_Reference_2(?CHARS_REST(";", Rest), State, Acc) ->
     end;        
 parse_Reference_2(?CHARS_REST(_, _), State, _) ->
     fatal_error(bad_charref, State);
+?EMPTY2;
 ?CHECK2(A, B, C).
 
 % Name parse until ';' return Name
-parse_Reference_3(?EMPTY, State, Acc) -> 
-    case cf(?EMPTY, State) of
-        {error, Reason, PState1} ->
-            fatal_error(Reason, PState1);
-        {?EMPTY, _} = PState1 ->
-            fatal_error(bad_charref, PState1);
-        {Bytes, State1} ->
-            parse_Reference_3(Bytes, State1, Acc)
-    end;
 parse_Reference_3(?CHARS_REST(C, _) = Bytes, State, _) when ?is_name_start_char(C) ->
     {Name, {Rest1, State1}} = parse_Name(Bytes, State),
     parse_Reference_3(Rest1, State1, Name);
@@ -742,6 +689,7 @@ parse_Reference_3(?CHARS_REST(";", Rest), State, Acc) ->
     {Acc, {Rest, State}};
 parse_Reference_3(?CHARS_REST(_, _), State, _) ->
     fatal_error(bad_charref, State);
+?EMPTY2;
 ?CHECK2(A, B, C).
 
 %%----------------------------------------------------------------------
@@ -751,15 +699,6 @@ parse_Reference_3(?CHARS_REST(_, _), State, _) ->
 parse_PEReference(?CHARS_REST("%", Rest), State) ->
     parse_PEReference_1(Rest, State, ?CHARS("%")).
 
-parse_PEReference_1(?EMPTY, State, Acc) -> 
-    case cf(?EMPTY, State) of
-        {error, Reason, PState1} ->
-            fatal_error(Reason, PState1);
-        {?EMPTY, _} = PState1 ->
-            fatal_error(bad_charref, PState1);
-        {Bytes, State1} ->
-            parse_PEReference_1(Bytes, State1, Acc)
-    end;
 parse_PEReference_1(?CHARS_REST(C, _) = Bytes, State, Acc) when ?is_name_start_char(C) ->
     {Name, {Rest, State1}} = parse_Name(Bytes, State),
     parse_PEReference_1(Rest, State1, ?APPEND_STREAM(Acc, Name));
@@ -767,6 +706,7 @@ parse_PEReference_1(?CHARS_REST(";", Rest), State, Acc) ->
     {Acc, {Rest, State}};
 parse_PEReference_1(?CHARS_REST(_, _), State, _) ->
     fatal_error(bad_charref, State);
+?EMPTY2;
 ?CHECK2(A, B, C).
 
 
@@ -787,8 +727,7 @@ parse_Comment(Stream, State) ->
     consume_Comment(Stream, State).
 
 parse_Comment(Stream, State, Acc) 
-    when Stream == ?EMPTY;
-         Stream == ?CHARS("\r");
+    when Stream == ?CHARS("\r");
          Stream == ?CHARS("-");
          Stream == ?CHARS("--") ->
     case cf(Stream, State) of
@@ -813,11 +752,11 @@ parse_Comment(?CHARS_REST(C, Rest), State, Acc) when ?is_char(C) ->
     parse_Comment(Rest, State, ?APPEND(Acc, C));
 parse_Comment(?CHARS_REST(_, _), State, _) ->
     fatal_error(bad_comment_character, State);
+?EMPTY2;
 ?CHECK2(A, B, C).
 
 consume_Comment(Stream, State) 
-    when Stream == ?EMPTY;
-         Stream == ?CHARS("\r");
+    when Stream == ?CHARS("\r");
          Stream == ?CHARS("-");
          Stream == ?CHARS("--") ->
     case cf(Stream, State) of
@@ -842,6 +781,7 @@ consume_Comment(?CHARS_REST(C, Rest), State) when ?is_char(C) ->
     consume_Comment(Rest, State);
 consume_Comment(?CHARS_REST(_, _) = Stream, State) ->
     fatal_error(bad_comment_character, {Stream, State});
+?EMPTY1;
 ?CHECK1(A, B).
 
 %% -spec parse_PI(State) -> {PI, State}
@@ -858,15 +798,6 @@ consume_Comment(?CHARS_REST(_, _) = Stream, State) ->
 %%----------------------------------------------------------------------
 parse_PI(Stream, #{proc_inst := false} = State) ->
     consume_PI(Stream, State);
-parse_PI(Stream, State) when Stream == ?EMPTY ->
-    case cf(Stream, State) of
-        {error, Reason, PState1} ->
-            fatal_error(Reason, PState1);
-        {Stream, _} = PState1 ->
-            fatal_error(bad_pi, PState1);
-        {Bytes, State1} ->
-            parse_PI(Bytes, State1)
-    end;
 parse_PI(?CHARS_REST(C, _) = Bytes, State) when ?is_name_start_char(C) ->
     {Name, {Rest, State1}} = parse_Name(Bytes, State),
     case Name of
@@ -880,25 +811,17 @@ parse_PI(?CHARS_REST(C, _) = Bytes, State) when ?is_name_start_char(C) ->
     end;
 parse_PI(?CHARS_REST(_, _), State) ->
     fatal_error(bad_pi, State);
+?EMPTY1;
 ?CHECK1(A, B).
 
-parse_PI_1(?EMPTY, State) ->
-    case cf(?EMPTY, State) of
-        {error, Reason, PState1} ->
-            fatal_error(Reason, PState1);
-        {?EMPTY, _} = PState1 ->
-            fatal_error(bad_pi, PState1);
-        {Bytes, State1} ->
-            parse_PI_1(Bytes, State1)
-    end;
 parse_PI_1(?CHARS_REST(C, _) = Bytes, State) when ?is_whitespace(C) ->
     {_, {Bytes1, State1}} = parse_S(Bytes, State),
     parse_PI_2(Bytes1, State1, <<>>);
+?EMPTY1;
 ?CHECK1(A, B).
 
 parse_PI_2(Stream, State, Acc) 
-    when Stream == ?EMPTY;
-         Stream == ?CHARS("?") ->
+    when Stream == ?CHARS("?") ->
     case cf(Stream, State) of
         {error, Reason, PState1} ->
             fatal_error(Reason, PState1);
@@ -913,18 +836,9 @@ parse_PI_2(?CHARS_REST(C, Rest), State, Acc) when ?is_char(C) ->
     parse_PI_2(Rest, State, ?APPEND(Acc, C));
 parse_PI_2(?CHARS_REST(_, _), State, _) ->
     fatal_error(bad_pi, State);
+?EMPTY2;
 ?CHECK2(A, B, C).
 
-consume_PI(Stream, State) 
-    when Stream == ?EMPTY ->
-    case cf(Stream, State) of
-        {error, Reason, PState1} ->
-            fatal_error(Reason, PState1);
-        {Stream, _} = PState1 ->
-            fatal_error(bad_pi, PState1);
-        {Bytes, State1} ->
-            consume_PI(Bytes, State1)
-    end;
 consume_PI(?CHARS_REST(C, _) = Bytes, State) when ?is_name_start_char(C) ->
     {Name, {Bytes1, State1}} = parse_Name(Bytes, State),
     case Name of
@@ -938,25 +852,17 @@ consume_PI(?CHARS_REST(C, _) = Bytes, State) when ?is_name_start_char(C) ->
     end;
 consume_PI(?CHARS_REST(_, _), State) ->
     fatal_error(bad_pi, State);
+?EMPTY1;
 ?CHECK1(A, B).
 
-consume_PI_1(?EMPTY, State) ->
-    case cf(?EMPTY, State) of
-        {error, Reason, PState1} ->
-            fatal_error(Reason, PState1);
-        {?EMPTY, _} = PState1 ->
-            fatal_error(bad_pi, PState1);
-        {Bytes, State1} ->
-            consume_PI_1(Bytes, State1)
-    end;
 consume_PI_1(?CHARS_REST(C, _) = Bytes, State) when ?is_whitespace(C) ->
     {_, {Bytes1, State1}} = parse_S(Bytes, State),
     consume_PI_2(Bytes1, State1);
+?EMPTY1;
 ?CHECK1(A, B).
 
 consume_PI_2(Stream, State) 
-    when Stream == ?EMPTY;
-         Stream == ?CHARS("?") ->
+    when Stream == ?CHARS("?") ->
     case cf(Stream, State) of
         {error, Reason, PState1} ->
             fatal_error(Reason, PState1);
@@ -971,6 +877,7 @@ consume_PI_2(?CHARS_REST(C, Rest), State) when ?is_char(C) ->
     consume_PI_2(Rest, State);
 consume_PI_2(?CHARS_REST(_, _), State) ->
     fatal_error(bad_pi, State);
+?EMPTY1;
 ?CHECK1(A, B).
 
 %% -spec parse_CharData(State) -> {CharData, State}
@@ -1044,6 +951,8 @@ parse_CharData(?CHARS_REST(C, Rest), State, _IsWs, Acc) ->
 %% [20] CData   ::= (Char* - (Char* ']]>' Char*))
 %% [21] CDEnd   ::= ']]>'
 %%----------------------------------------------------------------------
+parse_CDSect(?CHARS_REST("<![CDATA[", Rest), State) ->
+    parse_CDSect(Rest, State, ?EMPTY, true);
 parse_CDSect(Stream, State)
     when Stream == ?CHARS("<![");
          Stream == ?CHARS("<![C");
@@ -1054,22 +963,17 @@ parse_CDSect(Stream, State)
     case cf(Stream, State) of
         {error, Reason, PState1} ->
             fatal_error(Reason, PState1);
-        {?EMPTY, State1} ->
-            State1;
         {Stream, _} = PState1 ->
             fatal_error(bad_cdata, PState1);
         {Bytes, State1} ->
             parse_CDSect(Bytes, State1)
     end;
-parse_CDSect(?CHARS_REST("<![CDATA[", Rest), State) ->
-    parse_CDSect(Rest, State, ?EMPTY, true);
 parse_CDSect(?CHARS_REST(_, _), State) ->
     fatal_error(bad_cdata, State);
 ?CHECK1(A, B).
 
 parse_CDSect(Stream, State, Acc, IsWs)
-    when Stream == ?EMPTY;
-         Stream == ?CHARS("\r");
+    when Stream == ?CHARS("\r");
          Stream == ?CHARS("]");
          Stream == ?CHARS("]]") ->
     case cf(Stream, State) of
@@ -1096,15 +1000,18 @@ parse_CDSect(?CHARS_REST(C, Rest), State, Acc, IsWs) when ?is_char(C) ->
     parse_CDSect(Rest, State, ?PREPEND(Acc, C), IsWs);
 parse_CDSect(?CHARS_REST(_, _), State, _, _) ->
     fatal_error(bad_char_data, State);
+?EMPTY3;
 ?CHECK3(A, B, C, D).
 
 
 %%----------------------------------------------------------------------
 %% XXX spec, etc. [80]
 %%----------------------------------------------------------------------
+parse_EncodingDecl(?CHARS_REST("encoding", Rest), State) ->
+    {Rest1, State1} = parse_Eq(Rest, State),
+    parse_EncodingDecl_1(Rest1, State1);
 parse_EncodingDecl(Stream, State)
-    when Stream == ?EMPTY;
-         Stream == ?CHARS("e");
+    when Stream == ?CHARS("e");
          Stream == ?CHARS("en");
          Stream == ?CHARS("enc");
          Stream == ?CHARS("enco");
@@ -1119,55 +1026,28 @@ parse_EncodingDecl(Stream, State)
         {Bytes, State1} ->
             parse_EncodingDecl(Bytes, State1)
     end;
-parse_EncodingDecl(?CHARS_REST("encoding", Rest), State) ->
-    {Rest1, State1} = parse_Eq(Rest, State),
-    parse_EncodingDecl_1(Rest1, State1);
 parse_EncodingDecl(?CHARS_REST(_, _) = Stream, State) ->
     {?EMPTY, {Stream, State}}; % was not an encoding
+?EMPTY1;
 ?CHECK1(A, B).
 
-parse_EncodingDecl_1(?EMPTY, State) ->
-    case cf(?EMPTY, State) of
-        {error, Reason, PState1} ->
-            fatal_error(Reason, PState1);
-        {?EMPTY, _} = PState1 ->
-            fatal_error(bad_encoding, PState1);
-        {Bytes, State1} ->
-            parse_EncodingDecl_1(Bytes, State1)
-    end;
 parse_EncodingDecl_1(?CHARS_REST(C, Rest), State) when C == $';
                                                        C == $\" ->
     parse_EncodingDecl_2(Rest, State, C);
 parse_EncodingDecl_1(?CHARS_REST(_, _), State) ->
     fatal_error(bad_encoding, State);
+?EMPTY1;
 ?CHECK1(A, B).
 
-parse_EncodingDecl_2(?EMPTY, State, Stop) ->
-    case cf(?EMPTY, State) of
-        {error, Reason, PState1} ->
-            fatal_error(Reason, PState1);
-        {?EMPTY, _} = PState1 ->
-            fatal_error(bad_encoding, PState1);
-        {Bytes, State1} ->
-            parse_EncodingDecl_2(Bytes, State1, Stop)
-    end;
 parse_EncodingDecl_2(?CHARS_REST(C, Rest), State, Stop) 
     when C >= $A andalso C =< $Z;
          C >= $a andalso C =< $z ->
     parse_EncodingDecl_3(Rest, State, ?APPEND(<<>>, C), Stop);
 parse_EncodingDecl_2(?CHARS_REST(_, _), State, _) ->
     fatal_error(bad_char, State);
+?EMPTY2;
 ?CHECK2(A, B, C).
 
-parse_EncodingDecl_3(?EMPTY, State, Acc, Stop) ->
-    case cf(?EMPTY, State) of
-        {error, Reason, PState1} ->
-            fatal_error(Reason, PState1);
-        {?EMPTY, _} = PState1 ->
-            fatal_error(bad_encoding, PState1);
-        {Bytes, State1} ->
-            parse_EncodingDecl_3(Bytes, State1, Acc, Stop)
-    end;
 parse_EncodingDecl_3(?CHARS_REST(C, Rest), State, Acc, C) ->
     {Acc, {Rest, State}};
 parse_EncodingDecl_3(?CHARS_REST(C, Rest), State, Acc, Stop)
@@ -1178,6 +1058,7 @@ parse_EncodingDecl_3(?CHARS_REST(C, Rest), State, Acc, Stop)
     parse_EncodingDecl_3(Rest, State, ?APPEND(Acc, C), Stop);
 parse_EncodingDecl_3(?CHARS_REST(_, _), State, _, _) ->
     fatal_error(bad_char, State);
+?EMPTY3;
 ?CHECK3(A, B, C, D).
 
 %%----------------------------------------------------------------------
@@ -1196,34 +1077,17 @@ parse_Eq(Bytes, State) ->
     {_, {Bytes1, State1}} = parse_S_1(Bytes, State, ?EMPTY), % maybe ws
     parse_Eq_1(Bytes1, State1).
 
-parse_Eq_1(?EMPTY, State) ->
-    case cf(?EMPTY, State) of
-        {error, Reason, PState1} ->
-            fatal_error(Reason, PState1);
-        {?EMPTY, _} = PState1 ->
-            fatal_error(bad_eq_empty2, PState1);
-        {Bytes, State1} ->
-            parse_Eq_1(Bytes, State1)
-    end;
 parse_Eq_1(?CHARS_REST("=", Rest), State) ->
     {_, PState1} = parse_S_1(Rest, State, ?EMPTY), % maybe ws
     PState1;
 parse_Eq_1(?CHARS_REST(C, R), State) ->
     fatal_error(bad_eq, {C, R, State});
+?EMPTY1;
 ?CHECK1(A, B).
 
 %%----------------------------------------------------------------------
 %% XXX spec, etc. [26]
 %%----------------------------------------------------------------------
-parse_VersionNum(?EMPTY, State) ->
-    case cf(?EMPTY, State) of
-        {error, Reason, PState1} ->
-            fatal_error(Reason, PState1);
-        {?EMPTY, _} = PState1 ->
-            fatal_error(bad_version_num, PState1);
-        {Bytes, State1} ->
-            parse_VersionNum(Bytes, State1)
-    end;
 parse_VersionNum(?CHARS("1") = Stream, State) ->
     case cf(Stream, State) of
         {error, Reason, PState1} ->
@@ -1242,30 +1106,25 @@ parse_VersionNum(?CHARS_REST("1.", Rest), State) ->
     end;
 parse_VersionNum(?CHARS_REST(_, _), State) ->
     fatal_error(bad_version_num, State);
+?EMPTY1;
 ?CHECK1(A, B).
 
-parse_VersionNum_1(?EMPTY, State, Acc) ->
-    case cf(?EMPTY, State) of
-        {error, Reason, PState1} ->
-            fatal_error(Reason, PState1);
-        {?EMPTY, _} = PState1 ->
-            fatal_error(bad_version_num, PState1);
-        {Bytes, State1} ->
-            parse_VersionNum_1(Bytes, State1, Acc)
-    end;
 parse_VersionNum_1(?CHARS_REST(C, Rest), State, Acc)
     when C >= $0 andalso C =< $9 ->
     parse_VersionNum_1(Rest, State, ?APPEND(Acc, C));
 parse_VersionNum_1(?CHARS_REST(_, _) = Rest, State, Acc) ->
     {Acc, {Rest, State}};
+?EMPTY2;
 ?CHECK2(A, B, C).
 
 %%----------------------------------------------------------------------
 %% XXX spec, etc. [24] leading space is trimmed already
 %%----------------------------------------------------------------------
+parse_VersionInfo(?CHARS_REST("version", Rest), State) ->
+    {Rest1, State1} = parse_Eq(Rest, State),
+    parse_VersionInfo_1(Rest1, State1);
 parse_VersionInfo(Stream, State)
-    when Stream == ?EMPTY;
-         Stream == ?CHARS("v");
+    when Stream == ?CHARS("v");
          Stream == ?CHARS("ve");
          Stream == ?CHARS("ver");
          Stream == ?CHARS("vers");
@@ -1279,22 +1138,11 @@ parse_VersionInfo(Stream, State)
         {Bytes, State1} ->
             parse_VersionInfo(Bytes, State1)
     end;
-parse_VersionInfo(?CHARS_REST("version", Rest), State) ->
-    {Rest1, State1} = parse_Eq(Rest, State),
-    parse_VersionInfo_1(Rest1, State1);
 parse_VersionInfo(?CHARS_REST(_, _) = Bytes, State) ->
     {?EMPTY, {Bytes, State}}; % was not a version info
+?EMPTY1;
 ?CHECK1(A, B).
 
-parse_VersionInfo_1(?EMPTY, State) ->
-    case cf(?EMPTY, State) of
-        {error, Reason, PState1} ->
-            fatal_error(Reason, PState1);
-        {?EMPTY, _} = PState1 ->
-            fatal_error(bad_version_info, PState1);
-        {Bytes, State1} ->
-            parse_VersionInfo_1(Bytes, State1)
-    end;
 parse_VersionInfo_1(?CHARS_REST(C, Rest), State)
     when C == $';
          C == $\" ->
@@ -1303,29 +1151,24 @@ parse_VersionInfo_1(?CHARS_REST(C, Rest), State)
     {VersNum, PState2};
 parse_VersionInfo_1(?CHARS_REST(_, _), State) ->
     fatal_error(bad_version_info, State);
+?EMPTY1;
 ?CHECK1(A, B).
 
-parse_VersionInfo_2(?EMPTY, State, C) ->
-    case cf(?EMPTY, State) of
-        {error, Reason, PState1} ->
-            fatal_error(Reason, PState1);
-        {?EMPTY, _} = PState1 ->
-            fatal_error(bad_version_info, PState1);
-        {Bytes, State1} ->
-            parse_VersionInfo_2(Bytes, State1, C)
-    end;
 parse_VersionInfo_2(?CHARS_REST(C, Rest), State, C) ->
     {Rest, State};
 parse_VersionInfo_2(?CHARS_REST(_, _), State, _) ->
     fatal_error(bad_version_info, State);
+?EMPTY2;
 ?CHECK2(A, B, C).
 
 %%----------------------------------------------------------------------
 %% XXX spec, etc. [32] leading space is trimmed already
 %%----------------------------------------------------------------------
+parse_SDDecl(?CHARS_REST("standalone", Rest), State) ->
+    {Rest1, State1} = parse_Eq(Rest, State),
+    parse_SDDecl_1(Rest1, State1);
 parse_SDDecl(Stream, State)
-    when Stream == ?EMPTY;
-         Stream == ?CHARS("s");
+    when Stream == ?CHARS("s");
          Stream == ?CHARS("st");
          Stream == ?CHARS("sta");
          Stream == ?CHARS("stan");
@@ -1342,22 +1185,11 @@ parse_SDDecl(Stream, State)
         {Bytes, State1} ->
             parse_SDDecl(Bytes, State1)
     end;
-parse_SDDecl(?CHARS_REST("standalone", Rest), State) ->
-    {Rest1, State1} = parse_Eq(Rest, State),
-    parse_SDDecl_1(Rest1, State1);
 parse_SDDecl(?CHARS_REST(_, _) = Bytes, State) ->
     {?EMPTY, {Bytes, State}}; % was not a standalone decl
+?EMPTY1;
 ?CHECK1(A, B).
 
-parse_SDDecl_1(?EMPTY, State) ->
-    case cf(?EMPTY, State) of
-        {error, Reason, PState1} ->
-            fatal_error(Reason, PState1);
-        {?EMPTY, _} = PState1 ->
-            fatal_error(bad_standalone, PState1);
-        {Bytes, State1} ->
-            parse_SDDecl_1(Bytes, State1)
-    end;
 parse_SDDecl_1(?CHARS_REST(C, Rest), State)
     when C == $';
          C == $\" ->
@@ -1366,11 +1198,15 @@ parse_SDDecl_1(?CHARS_REST(C, Rest), State)
     {Standalone, PState2};
 parse_SDDecl_1(?CHARS_REST(_, _), State) ->
     fatal_error(bad_version_info, State);
+?EMPTY1;
 ?CHECK1(A, B).
 
+parse_SDDecl_2(?CHARS_REST("no", Rest), State) ->
+    {false, {Rest, State}};
+parse_SDDecl_2(?CHARS_REST("yes", Rest), State) ->
+    {true, {Rest, State}};
 parse_SDDecl_2(Stream, State)
-    when Stream == ?EMPTY;
-         Stream == ?CHARS("y");
+    when Stream == ?CHARS("y");
          Stream == ?CHARS("ye");
          Stream == ?CHARS("n") ->
     case cf(Stream, State) of
@@ -1381,46 +1217,21 @@ parse_SDDecl_2(Stream, State)
         {Bytes, State1} ->
             parse_SDDecl_2(Bytes, State1)
     end;
-parse_SDDecl_2(?CHARS_REST("no", Rest), State) ->
-    {false, {Rest, State}};
-parse_SDDecl_2(?CHARS_REST("yes", Rest), State) ->
-    {true, {Rest, State}};
 parse_SDDecl_2(?CHARS_REST(_, _), State) ->
     fatal_error(bad_standalone, State);
+?EMPTY1;
 ?CHECK1(A, B).
 
-parse_SDDecl_3(?EMPTY, State, C) ->
-    case cf(?EMPTY, State) of
-        {error, Reason, PState1} ->
-            fatal_error(Reason, PState1);
-        {?EMPTY, _} = PState1 ->
-            fatal_error(bad_standalone, PState1);
-        {Bytes, State1} ->
-            parse_SDDecl_3(Bytes, State1, C)
-    end;
 parse_SDDecl_3(?CHARS_REST(C, Rest), State, C) ->
     {Rest, State};
 parse_SDDecl_3(?CHARS_REST(_, _), State, _) ->
     fatal_error(bad_standalone, State);
+?EMPTY2;
 ?CHECK2(A, B, C).
 
 %%----------------------------------------------------------------------
 %% XXX spec, etc. [23] 
 %%----------------------------------------------------------------------
-parse_XMLDecl(Stream, State)
-    when Stream == ?EMPTY;
-         Stream == ?CHARS("<");
-         Stream == ?CHARS("<?");
-         Stream == ?CHARS("<?x");
-         Stream == ?CHARS("<?xm") ->
-    case cf(Stream, State) of
-        {error, Reason, PState1} ->
-            fatal_error(Reason, PState1);
-        {Stream, _} = PState1 ->
-            fatal_error(bad_standalone, PState1);
-        {Bytes, State1} ->
-            parse_XMLDecl(Bytes, State1)
-    end;
 parse_XMLDecl(?CHARS_REST("<?xml", Rest), State) ->
     {_, {Rest1, State1}} = parse_S(Rest, State), % must be whitespace
     case parse_VersionInfo(Rest1, State1) of
@@ -1447,15 +1258,36 @@ parse_XMLDecl(?CHARS_REST("<?xml", Rest), State) ->
             PState2 = set_next_parser_position(misc_pre_dtd, PState1),
             event_startDocument(Vers, Enc, EncSet, Std, StdSet, PState2)
     end;
+parse_XMLDecl(Stream, State)
+    when Stream == ?CHARS("<");
+         Stream == ?CHARS("<?");
+         Stream == ?CHARS("<?x");
+         Stream == ?CHARS("<?xm") ->
+    case cf(Stream, State) of
+        {error, Reason, PState1} ->
+            fatal_error(Reason, PState1);
+        {Stream, _} = PState1 ->
+            fatal_error(bad_standalone, PState1);
+        {Bytes, State1} ->
+            parse_XMLDecl(Bytes, State1)
+    end;
 parse_XMLDecl(?CHARS_REST(_, _) = Bytes, State) ->
     % default declaration
     PState1 = set_next_parser_position(misc_pre_dtd, {Bytes, State}),
     event_startDocument(<<"1.0">>, <<"UTF-8">>, false, false, false, PState1);
+?EMPTY1;
 ?CHECK1(A, B).
 
 %%----------------------------------------------------------------------
 %% XXX spec, etc. [27] 
 %%----------------------------------------------------------------------
+parse_Misc(?CHARS_REST("<!--", Rest), State) ->
+    parse_Comment(Rest, State);
+parse_Misc(?CHARS_REST("<?", Rest), State) ->
+    parse_PI(Rest, State);
+parse_Misc(?CHARS_REST(C, _) = Bytes, State) when ?is_whitespace(C) ->
+    {_, {Rest1, State1}} = parse_S(Bytes, State),
+    parse_Misc(Rest1, State1);
 parse_Misc(Stream, State)
     when Stream == ?EMPTY;
          Stream == ?CHARS("<");
@@ -1473,13 +1305,6 @@ parse_Misc(Stream, State)
         {Stream1, State1} ->
             parse_Misc(Stream1, State1)
     end;
-parse_Misc(?CHARS_REST("<!--", Rest), State) ->
-    parse_Comment(Rest, State);
-parse_Misc(?CHARS_REST("<?", Rest), State) ->
-    parse_PI(Rest, State);
-parse_Misc(?CHARS_REST(C, _) = Bytes, State) when ?is_whitespace(C) ->
-    {_, {Rest1, State1}} = parse_S(Bytes, State),
-    parse_Misc(Rest1, State1);
 parse_Misc(?CHARS_REST(_, _) = Bytes, State) ->
     %% XXX return that it was not Misc?
     {Bytes, State};
@@ -1525,8 +1350,7 @@ parse_content(?CHARS_REST(_, _) = Bytes, State) ->
 %% XXX spec, etc. [28] 
 %%----------------------------------------------------------------------
 parse_doctypedecl(Stream, State)
-    when Stream == ?EMPTY;
-         Stream == ?CHARS("<");
+    when Stream == ?CHARS("<");
          Stream == ?CHARS("<!");
          Stream == ?CHARS("<!D");
          Stream == ?CHARS("<!DO");
@@ -1552,6 +1376,7 @@ parse_doctypedecl(?CHARS_REST("<", _) = Bytes, State) ->
     {Bytes, State};
 parse_doctypedecl(?CHARS_REST(C, _), State) ->
     fatal_error(bad_doctypedecl, {C, State});
+?EMPTY1;
 ?CHECK1(A, B).
 
 % maybe external id, maybe subset
@@ -1618,15 +1443,6 @@ parse_doctypedecl_3(Stream, State, Text, DTD) ->
     end.
 
 % S? and closing '>', sets text value of event
-parse_doctypedecl_4(?EMPTY, State, Text, DTD) ->
-    case cf(?EMPTY, State) of
-        {error, Reason, PState1} ->
-            fatal_error(Reason, PState1);
-        {?EMPTY, _} = PState1 ->
-            fatal_error(bad_dtd, PState1);
-        {Bytes, State1} ->
-            parse_doctypedecl_4(Bytes, State1, Text, DTD)
-    end;
 parse_doctypedecl_4(?CHARS_REST(">", Rest), State, Text, DTD) ->
     {DTD#{text => ?APPEND(Text, ">")}, {Rest, State}};
 parse_doctypedecl_4(?CHARS_REST(C, _) = Stream, State, Text, DTD) when ?is_whitespace(C) ->
@@ -1634,34 +1450,13 @@ parse_doctypedecl_4(?CHARS_REST(C, _) = Stream, State, Text, DTD) when ?is_white
     parse_doctypedecl_4(Rest1, State1, Text, DTD);
 parse_doctypedecl_4(?CHARS_REST(_, _), State, _, _) ->
     fatal_error(bad_dtd, State);
+?EMPTY3;
 ?CHECK3(A, B, C, D).
 
 
 %%----------------------------------------------------------------------
 %% XXX spec, etc. [75] return {Pub, Sys}
 %%----------------------------------------------------------------------
-parse_ExternalID(Stream, State)
-    when Stream == ?EMPTY;
-         Stream == ?CHARS("S");
-         Stream == ?CHARS("SY");
-         Stream == ?CHARS("SYS");
-         Stream == ?CHARS("SYST");
-         Stream == ?CHARS("SYSTE");
-         Stream == ?CHARS("SYSTEM");
-         Stream == ?CHARS("P");
-         Stream == ?CHARS("PU");
-         Stream == ?CHARS("PUB");
-         Stream == ?CHARS("PUBL");
-         Stream == ?CHARS("PUBLI");
-         Stream == ?CHARS("PUBLIC") ->
-    case cf(Stream, State) of
-        {error, Reason, PState1} ->
-            fatal_error(Reason, PState1);
-        {Stream, _} = PState1 ->
-            fatal_error(bad_external_id, PState1);
-        {Bytes, State1} ->
-            parse_ExternalID(Bytes, State1)
-    end;
 parse_ExternalID(?CHARS_REST("SYSTEM", Rest), State) ->
     {_, {Rest1, State1}} = parse_S(Rest, State),
     {Sys, {Rest2, State2}} = parse_SystemLiteral(Rest1, State1),
@@ -1672,21 +1467,42 @@ parse_ExternalID(?CHARS_REST("PUBLIC", Rest), State) ->
     {_, {Rest3, State3}} = parse_S(Rest2, State2),
     {Sys, {Rest4, State4}} = parse_SystemLiteral(Rest3, State3),
     {{Pub, Sys}, {Rest4, State4}};
+parse_ExternalID(Stream, State)
+    when Stream == ?CHARS("S");
+         Stream == ?CHARS("SY");
+         Stream == ?CHARS("SYS");
+         Stream == ?CHARS("SYST");
+         Stream == ?CHARS("SYSTE");
+         Stream == ?CHARS("P");
+         Stream == ?CHARS("PU");
+         Stream == ?CHARS("PUB");
+         Stream == ?CHARS("PUBL");
+         Stream == ?CHARS("PUBLI") ->
+    case cf(Stream, State) of
+        {error, Reason, PState1} ->
+            fatal_error(Reason, PState1);
+        {Stream, _} = PState1 ->
+            fatal_error(bad_external_id, PState1);
+        {Bytes, State1} ->
+            parse_ExternalID(Bytes, State1)
+    end;
 parse_ExternalID(?CHARS_REST(_, _), State) ->
     fatal_error(bad_external_id, State);
+?EMPTY1;
 ?CHECK1(A, B).
 
 %%----------------------------------------------------------------------
 %% XXX spec, etc. [83]
 %%----------------------------------------------------------------------
+parse_PublicID(?CHARS_REST("PUBLIC", Rest), State) ->
+    {_, {Rest1, State1}} = parse_S(Rest, State),
+    parse_PubidLiteral(Rest1, State1);
 parse_PublicID(Stream, State)
-    when Stream == ?EMPTY;
-         Stream == ?CHARS("P");
+    when Stream == ?CHARS("P");
          Stream == ?CHARS("PU");
          Stream == ?CHARS("PUB");
          Stream == ?CHARS("PUBL");
-         Stream == ?CHARS("PUBLI");
-         Stream == ?CHARS("PUBLIC") ->
+         Stream == ?CHARS("PUBLI") ->
     case cf(Stream, State) of
         {error, Reason, PState1} ->
             fatal_error(Reason, PState1);
@@ -1695,33 +1511,14 @@ parse_PublicID(Stream, State)
         {Bytes, State1} ->
             parse_PublicID(Bytes, State1)
     end;
-parse_PublicID(?CHARS_REST("PUBLIC", Rest), State) ->
-    {_, {Rest1, State1}} = parse_S(Rest, State),
-    parse_PubidLiteral(Rest1, State1);
 parse_PublicID(?CHARS_REST(_, _), State) ->
     fatal_error(bad_public_id, State);
+?EMPTY1;
 ?CHECK1(A, B).
 
 %%----------------------------------------------------------------------
 %% XXX spec, etc. [82] '<!N' is in stream, returns {Name, Pub, Sys}
 %%----------------------------------------------------------------------
-parse_NotationDecl(Stream, State)
-    when Stream == ?CHARS("<!N");
-         Stream == ?CHARS("<!NO");
-         Stream == ?CHARS("<!NOT");
-         Stream == ?CHARS("<!NOTA");
-         Stream == ?CHARS("<!NOTAT");
-         Stream == ?CHARS("<!NOTATI");
-         Stream == ?CHARS("<!NOTATIO");
-         Stream == ?CHARS("<!NOTATION") ->
-    case cf(Stream, State) of
-        {error, Reason, PState1} ->
-            fatal_error(Reason, PState1);
-        {Stream, _} = PState1 ->
-            fatal_error(bad_public_id, PState1);
-        {Bytes, State1} ->
-            parse_NotationDecl(Bytes, State1)
-    end;
 parse_NotationDecl(?CHARS_REST("<!NOTATION", Rest), State) ->
     {_, {Rest1, State1}} = parse_S(Rest, State),
     {Name, {Rest2, State2}} = parse_Name(Rest1, State1),
@@ -1756,6 +1553,22 @@ parse_NotationDecl(?CHARS_REST("<!NOTATION", Rest), State) ->
         {_, {_, State4}} ->
             fatal_error(bad_notation, State4)
     end;
+parse_NotationDecl(Stream, State)
+    when Stream == ?CHARS("<!N");
+         Stream == ?CHARS("<!NO");
+         Stream == ?CHARS("<!NOT");
+         Stream == ?CHARS("<!NOTA");
+         Stream == ?CHARS("<!NOTAT");
+         Stream == ?CHARS("<!NOTATI");
+         Stream == ?CHARS("<!NOTATIO") ->
+    case cf(Stream, State) of
+        {error, Reason, PState1} ->
+            fatal_error(Reason, PState1);
+        {Stream, _} = PState1 ->
+            fatal_error(bad_public_id, PState1);
+        {Bytes, State1} ->
+            parse_NotationDecl(Bytes, State1)
+    end;
 parse_NotationDecl(?CHARS_REST(_, _), State) ->
     fatal_error(bad_notation, State);
 ?CHECK1(A, B).
@@ -1763,6 +1576,14 @@ parse_NotationDecl(?CHARS_REST(_, _), State) ->
 %%----------------------------------------------------------------------
 %% XXX spec, etc. [60] (required | implied | {fixed, AttValue}) 
 %%----------------------------------------------------------------------
+parse_DefaultDecl(?CHARS_REST("#REQUIRED", Rest), State) ->
+    {required, {Rest, State}};
+parse_DefaultDecl(?CHARS_REST("#IMPLIED", Rest), State) ->
+    {implied, {Rest, State}};
+parse_DefaultDecl(?CHARS_REST("#FIXED", Rest), State) -> 
+    {_, {Rest1, State1}} = parse_S(Rest, State),
+    {Value, PState} = parse_AttValue(Rest1, State1),
+    {{fixed, Value}, PState};
 parse_DefaultDecl(Stream, State)
     when Stream == ?CHARS("#");
          Stream == ?CHARS("#R");
@@ -1781,8 +1602,7 @@ parse_DefaultDecl(Stream, State)
          Stream == ?CHARS("#F");
          Stream == ?CHARS("#FI");
          Stream == ?CHARS("#FIX");
-         Stream == ?CHARS("#FIXE");
-         Stream == ?CHARS("#FIXED") ->
+         Stream == ?CHARS("#FIXE") ->
     case cf(Stream, State) of
         {error, Reason, PState1} ->
             fatal_error(Reason, PState1);
@@ -1791,14 +1611,6 @@ parse_DefaultDecl(Stream, State)
         {Bytes, State1} ->
             parse_DefaultDecl(Bytes, State1)
     end;
-parse_DefaultDecl(?CHARS_REST("#REQUIRED", Rest), State) ->
-    {required, {Rest, State}};
-parse_DefaultDecl(?CHARS_REST("#IMPLIED", Rest), State) ->
-    {implied, {Rest, State}};
-parse_DefaultDecl(?CHARS_REST("#FIXED", Rest), State) -> 
-    {_, {Rest1, State1}} = parse_S(Rest, State),
-    {Value, PState} = parse_AttValue(Rest1, State1),
-    {{fixed, Value}, PState};
 parse_DefaultDecl(?CHARS_REST(_, _), State) -> 
     fatal_error(bad_default, State);
 ?CHECK1(A, B).
@@ -1815,15 +1627,6 @@ parse_Enumeration(?CHARS_REST(_, _), State) ->
     fatal_error(bad_enum, State);
 ?CHECK1(A, B).
 
-parse_Enumeration_1(?EMPTY, State, Acc) ->
-    case cf(?EMPTY, State) of
-        {error, Reason, PState1} ->
-            fatal_error(Reason, PState1);
-        {?EMPTY, _} = PState1 ->
-            fatal_error(bad_enum, PState1);
-        {Bytes, State1} ->
-            parse_Enumeration_1(Bytes, State1, Acc)
-    end;
 parse_Enumeration_1(?CHARS_REST(")", Rest), State, Acc) ->
     {{enumeration, lists:reverse(Acc)}, {Rest, State}};
 parse_Enumeration_1(?CHARS_REST("|", Rest), State, Acc) ->
@@ -1833,12 +1636,16 @@ parse_Enumeration_1(?CHARS_REST("|", Rest), State, Acc) ->
     parse_Enumeration_1(Rest3, State3, [Name|Acc]);
 parse_Enumeration_1(?CHARS_REST(_, _), State, _) ->
     fatal_error(bad_enum, State);
+?EMPTY2;
 ?CHECK2(A, B, C).
 
 
 %%----------------------------------------------------------------------
 %% XXX spec, etc. [58] 'N' in stream 
 %%----------------------------------------------------------------------
+parse_NotationType(?CHARS_REST("NOTATION", Rest), State) ->
+    {_, {Rest1, State1}} = parse_S(Rest, State),
+    parse_NotationType_1(Rest1, State1);
 parse_NotationType(Stream, State)
     when Stream == ?CHARS("N");
          Stream == ?CHARS("NO");
@@ -1846,8 +1653,7 @@ parse_NotationType(Stream, State)
          Stream == ?CHARS("NOTA");
          Stream == ?CHARS("NOTAT");
          Stream == ?CHARS("NOTATI");
-         Stream == ?CHARS("NOTATIO");
-         Stream == ?CHARS("NOTATION") ->
+         Stream == ?CHARS("NOTATIO") ->
     case cf(Stream, State) of
         {error, Reason, PState1} ->
             fatal_error(Reason, PState1);
@@ -1856,22 +1662,10 @@ parse_NotationType(Stream, State)
         {Bytes, State1} ->
             parse_NotationType(Bytes, State1)
     end;
-parse_NotationType(?CHARS_REST("NOTATION", Rest), State) ->
-    {_, {Rest1, State1}} = parse_S(Rest, State),
-    parse_NotationType_1(Rest1, State1);
 parse_NotationType(?CHARS_REST(_, _), State) ->
     fatal_error(bad_notation_type, State);
 ?CHECK1(A, B).
 
-parse_NotationType_1(?EMPTY, State) ->
-    case cf(?EMPTY, State) of
-        {error, Reason, PState1} ->
-            fatal_error(Reason, PState1);
-        {?EMPTY, _} = PState1 ->
-            fatal_error(bad_notation_type, PState1);
-        {Bytes, State1} ->
-            parse_NotationType_1(Bytes, State1)
-    end;
 parse_NotationType_1(?CHARS_REST("(", Rest), State) ->
     {_, {Rest1, State1}} = parse_S_1(Rest, State, ?EMPTY),
     {Name, {Rest2, State2}} = parse_Name(Rest1, State1),
@@ -1879,17 +1673,9 @@ parse_NotationType_1(?CHARS_REST("(", Rest), State) ->
     parse_NotationType_2(Rest3, State3, [Name]);
 parse_NotationType_1(?CHARS_REST(_, _), State) ->
     fatal_error(bad_notation_type, State);
+?EMPTY1;
 ?CHECK1(A, B).
 
-parse_NotationType_2(?EMPTY, State, Acc) ->
-    case cf(?EMPTY, State) of
-        {error, Reason, PState1} ->
-            fatal_error(Reason, PState1);
-        {?EMPTY, _} = PState1 ->
-            fatal_error(bad_notation_type, PState1);
-        {Bytes, State1} ->
-            parse_NotationType_2(Bytes, State1, Acc)
-    end;
 parse_NotationType_2(?CHARS_REST(")", Rest), State, Acc) ->
     {{notation, lists:reverse(Acc)}, {Rest, State}};
 parse_NotationType_2(?CHARS_REST("|", Rest), State, Acc) ->
@@ -1899,14 +1685,14 @@ parse_NotationType_2(?CHARS_REST("|", Rest), State, Acc) ->
     parse_NotationType_2(Rest3, State3, [Name|Acc]);
 parse_NotationType_2(?CHARS_REST(_, _), State, _) ->
     fatal_error(bad_notation_type, State);
+?EMPTY2;
 ?CHECK2(A, B, C).
 
 %%----------------------------------------------------------------------
 %% XXX spec, etc. [54][55][56][57]
 %%----------------------------------------------------------------------
 parse_AttType(Stream, State)
-    when Stream == ?EMPTY;
-         Stream == ?CHARS("C");
+    when Stream == ?CHARS("C");
          Stream == ?CHARS("CD");
          Stream == ?CHARS("CDA");
          Stream == ?CHARS("CDAT");
@@ -1959,20 +1745,12 @@ parse_AttType(?CHARS_REST("(", _) = Stream, State) ->
     parse_Enumeration(Stream, State);
 parse_AttType(?CHARS_REST(_, _), State) ->
     fatal_error(bad_att_type, State);
+?EMPTY1;
 ?CHECK1(A, B).
 
 %%----------------------------------------------------------------------
 %% XXX spec, etc. [53] trims trailing'>'
 %%----------------------------------------------------------------------
-parse_AttDef(?EMPTY, State, Acc) ->
-    case cf(?EMPTY, State) of
-        {error, Reason, PState1} ->
-            fatal_error(Reason, PState1);
-        {?EMPTY, _} = PState1 ->
-            fatal_error(bad_att_def, PState1);
-        {Bytes, State1} ->
-            parse_AttDef(Bytes, State1, Acc)
-    end;
 parse_AttDef(?CHARS_REST(">", Rest), State, Acc) ->
     {lists:reverse(Acc), {Rest, State}};
 parse_AttDef(?CHARS_REST(C, _) = Stream, State, Acc) when ?is_whitespace(C) ->
@@ -1990,11 +1768,17 @@ parse_AttDef(?CHARS_REST(C, _) = Stream, State, Acc) when ?is_whitespace(C) ->
     end;
 parse_AttDef(?CHARS_REST(_, _), State, _) ->
     fatal_error(bad_att_def, State);
+?EMPTY2;
 ?CHECK2(A, B, C).
 
 %%----------------------------------------------------------------------
 %% XXX spec, etc. [52] '<!A' in stream, returns {Name, AttDefs}
 %%----------------------------------------------------------------------
+parse_AttlistDecl(?CHARS_REST("<!ATTLIST", Rest), State) ->
+    {_, {Rest1, State1}} = parse_S(Rest, State),
+    {Name, {Rest2, State2}} = parse_Name(Rest1, State1),
+    {AttDefs, PState3} = parse_AttDef(Rest2, State2, []),
+    {{Name, AttDefs}, PState3};
 parse_AttlistDecl(Stream, State)
     when Stream == ?CHARS("<!A");
          Stream == ?CHARS("<!AT");
@@ -2011,11 +1795,6 @@ parse_AttlistDecl(Stream, State)
         {Bytes, State1} ->
             parse_AttlistDecl(Bytes, State1)
     end;
-parse_AttlistDecl(?CHARS_REST("<!ATTLIST", Rest), State) ->
-    {_, {Rest1, State1}} = parse_S(Rest, State),
-    {Name, {Rest2, State2}} = parse_Name(Rest1, State1),
-    {AttDefs, PState3} = parse_AttDef(Rest2, State2, []),
-    {{Name, AttDefs}, PState3};
 parse_AttlistDecl(?CHARS_REST(_, _), State) ->
     fatal_error(bad_att_list, State);
 ?CHECK1(A, B).
@@ -2024,8 +1803,7 @@ parse_AttlistDecl(?CHARS_REST(_, _), State) ->
 %% XXX spec, etc. [28a][28b][29]
 %%----------------------------------------------------------------------
 parse_intSubset(Stream, State, Text, DTD)
-    when Stream == ?EMPTY;
-         Stream == ?CHARS("<");
+    when Stream == ?CHARS("<");
          Stream == ?CHARS("<!");
          Stream == ?CHARS("<!-");
          Stream == ?CHARS("<!E") -> 
@@ -2080,21 +1858,13 @@ parse_intSubset(?CHARS_REST("%", _) = Stream, State, Text, DTD) ->
     end;
 parse_intSubset(?CHARS_REST(C, _), State, _, DTD) -> 
     fatal_error(bad_dtd, {DTD, C, State});
+?EMPTY3;
 ?CHECK3(A, B, C, D).
 
 
 %%----------------------------------------------------------------------
 %% XXX spec, etc. [39][40]
 %%----------------------------------------------------------------------
-parse_element(?EMPTY, State) ->
-    case cf(?EMPTY, State) of
-        {error, Reason, PState1} ->
-            fatal_error(Reason, PState1);
-        {?EMPTY, _} = PState1 ->
-            fatal_error(no_element, PState1);
-        {Bytes, State1} ->
-            parse_element(Bytes, State1)
-    end;
 parse_element(?CHARS_REST("<", Rest),#{tags := Tags,
                                        position := P} = State) ->
     {Name, {Rest1, State1}} = parse_Name(Rest, State),
@@ -2114,7 +1884,12 @@ parse_element(?CHARS_REST("<", Rest),#{tags := Tags,
             State4 = State3#{position := [content|P],
                              tags := [Name|Tags]},
             event_startElement(Name, As, Ns, {Rest3, State4})
-    end.
+    end;
+parse_element(?CHARS_REST(_, _), State) ->
+    fatal_error(bad_element, State);
+?EMPTY1;
+?CHECK1(S, B).
+
 
 %% return {IsEmpty, State}, trims ws and end bracket off
 parse_element_1(?CHARS("/") = Stream, State) ->
@@ -2131,31 +1906,14 @@ parse_element_1(?CHARS_REST("/>", Rest), State) ->
 parse_element_1(?CHARS_REST(">", Rest), State) ->
     {false, {Rest, State}}.
 
-parse_attributes(?EMPTY, State) ->
-    case cf(?EMPTY, State) of
-        {error, Reason, PState1} ->
-            fatal_error(Reason, PState1);
-        {?EMPTY, _} = PState1 ->
-            fatal_error(no_element, PState1);
-        {Bytes, State1} ->
-            parse_attributes(Bytes, State1)
-    end;
 parse_attributes(?CHARS_REST(C, _) = Bytes, State) when ?is_whitespace(C) ->
     {_, {Bytes1, State1}} = parse_S(Bytes, State),
     parse_attributes_1(Bytes1, State1, {[], []});
 parse_attributes(?CHARS_REST(_, _) = Bytes, State) ->
     {{[], []}, {Bytes, State}};
+?EMPTY1;
 ?CHECK1(A, B).
 
-parse_attributes_1(?EMPTY, State, Acc) ->
-    case cf(?EMPTY, State) of
-        {error, Reason, PState1} ->
-            fatal_error(Reason, PState1);
-        {?EMPTY, _} = PState1 ->
-            fatal_error(no_element, PState1);
-        {Bytes, State1} ->
-            parse_attributes_1(Bytes, State1, Acc)
-    end;
 parse_attributes_1(?CHARS_REST("/", _) = Bytes, State, Acc) ->
     {Acc, {Bytes, State}};
 parse_attributes_1(?CHARS_REST(">", _) = Bytes, State, Acc) ->
@@ -2171,17 +1929,9 @@ parse_attributes_1(?CHARS_REST(C, _) = Bytes, State, Acc) when ?is_name_start_ch
     end;
 parse_attributes_1(?CHARS_REST(_, _), State, _) ->
     fatal_error(bad_attribute, State);
+?EMPTY2;
 ?CHECK2(A, B, C).
 
-parse_attributes_2(?EMPTY, State, Acc) ->
-    case cf(?EMPTY, State) of
-        {error, Reason, PState1} ->
-            fatal_error(Reason, PState1);
-        {?EMPTY, _} = PState1 ->
-            fatal_error(bad_attribute, PState1);
-        {Bytes, State1} ->
-            parse_attributes_2(Bytes, State1, Acc)
-    end;
 parse_attributes_2(Bytes, State, {Ns, As}) ->
     {Name, {Bytes1, State1}} = parse_Name(Bytes, State),
     {Bytes2, State2} = parse_Eq(Bytes1, State1),
@@ -2198,36 +1948,20 @@ parse_attributes_2(Bytes, State, {Ns, As}) ->
                 false ->
                     {{Ns, [{Split, Value}|As]}, {Bytes3, State3}}
             end
-    end.
+    end;
+?EMPTY2.
 
 %%----------------------------------------------------------------------
 %% XXX spec, etc. [10] 
 %%----------------------------------------------------------------------
-parse_AttValue(?EMPTY, State) ->
-    case cf(?EMPTY, State) of
-        {error, Reason, PState1} ->
-            fatal_error(Reason, PState1);
-        {?EMPTY, _} = PState1 ->
-            fatal_error(bad_attval, PState1);
-        {Bytes, State1} ->
-            parse_AttValue(Bytes, State1)
-    end;
 parse_AttValue(?CHARS_REST(C, Rest), State) when C == $';
                                                  C == $\" ->
     parse_AttValue_1(Rest, State, ?EMPTY, C);
 parse_AttValue(?CHARS_REST(_, _), State) ->
     fatal_error(bad_attval, State);
+?EMPTY1;
 ?CHECK1(A, B).
 
-parse_AttValue_1(?EMPTY, State, Acc, C) ->
-    case cf(?EMPTY, State) of
-        {error, Reason, PState1} ->
-            fatal_error(Reason, PState1);
-        {?EMPTY, _} = PState1 ->
-            fatal_error(bad_attval, PState1);
-        {Bytes, State1} ->
-            parse_AttValue_1(Bytes, State1, Acc, C)
-    end;
 parse_AttValue_1(?CHARS_REST(C, Rest), State, Acc, C) ->
     {Acc, {Rest, State}};
 parse_AttValue_1(?CHARS_REST("<", _), State, _, _) ->
@@ -2244,20 +1978,12 @@ parse_AttValue_1(?CHARS_REST(C, Rest), State, Acc, Stop) when ?is_char(C) ->
     parse_AttValue_1(Rest, State, ?APPEND(Acc, C), Stop);
 parse_AttValue_1(?CHARS_REST(_, _), State, _, _) ->
     fatal_error(bad_attval, State);
+?EMPTY3;
 ?CHECK3(A, B, C, D).
 
 %%----------------------------------------------------------------------
 %% XXX spec, etc. [42] '</' is already trimmed
 %%----------------------------------------------------------------------
-parse_ETag(?EMPTY, State) ->
-    case cf(?EMPTY, State) of
-        {error, Reason, PState1} ->
-            fatal_error(Reason, PState1);
-        {?EMPTY, _} = PState1 ->
-            fatal_error(bad_endtag, PState1);
-        {Bytes, State1} ->
-            parse_ETag(Bytes, State1)
-    end;
 parse_ETag(?CHARS_REST(C, _) = Bytes, State) when ?is_name_start_char(C) ->
     {Name, {Bytes1, State1}} = parse_Name(Bytes, State),
     {Bytes2, #{position := [_|Ps], tags := [_|Ts]} = State2} = trim_sgt(Bytes1, State1),
@@ -2271,54 +1997,20 @@ parse_ETag(?CHARS_REST(C, _) = Bytes, State) when ?is_name_start_char(C) ->
     end;
 parse_ETag(?CHARS_REST(_, _), State) ->
     fatal_error(bad_endtag, State);
+?EMPTY1;
 ?CHECK1(A, B).
-
-%% parse_ETag_1(?EMPTY, State) ->
-%%     case cf(?EMPTY, State) of
-%%         {error, Reason, PState1} ->
-%%             fatal_error(Reason, PState1);
-%%         {?EMPTY, _} = PState1 ->
-%%             fatal_error(bad_endtag, PState1);
-%%         {Bytes, State1} ->
-%%             parse_ETag_1(Bytes, State1)
-%%     end;
-%% parse_ETag_1(?CHARS_REST(C, _) = Bytes, State) when ?is_whitespace(C) ->
-%%     {_, {Bytes1, State1}} = parse_S(Bytes, State),
-%%     parse_ETag_1(Bytes1, State1);
-%% parse_ETag_1(?CHARS_REST(">", Rest), State) ->
-%%     {Rest, State};
-%% parse_ETag_1(?CHARS_REST(_, _), State) ->
-%%     fatal_error(bad_endtag, State);
-%% ?CHECK1(A, B).
 
 %%----------------------------------------------------------------------
 %% XXX spec, etc. [9] 
 %%----------------------------------------------------------------------
-parse_EntityValue(?EMPTY, State) ->
-    case cf(?EMPTY, State) of
-        {error, Reason, PState1} ->
-            fatal_error(Reason, PState1);
-        {?EMPTY, _} = PState1 ->
-            fatal_error(bad_entval, PState1);
-        {Bytes, State1} ->
-            parse_EntityValue(Bytes, State1)
-    end;
 parse_EntityValue(?CHARS_REST(C, Rest), State) when C == $';
                                                     C == $\" ->
     parse_EntityValue_1(Rest, State, ?EMPTY, C);
 parse_EntityValue(?CHARS_REST(_, _), State) ->
     fatal_error(bad_entval, State);
+?EMPTY1;
 ?CHECK1(A, B).
 
-parse_EntityValue_1(?EMPTY, State, Acc, C) ->
-    case cf(?EMPTY, State) of
-        {error, Reason, PState1} ->
-            fatal_error(Reason, PState1);
-        {?EMPTY, _} = PState1 ->
-            fatal_error(bad_entval, PState1);
-        {Bytes, State1} ->
-            parse_EntityValue_1(Bytes, State1, Acc, C)
-    end;
 parse_EntityValue_1(?CHARS_REST(C, Rest), State, Acc, C) ->
     {Acc, {Rest, State}};
 parse_EntityValue_1(?CHARS_REST("&", Rest), State, Acc, Stop) ->
@@ -2337,12 +2029,21 @@ parse_EntityValue_1(?CHARS_REST(C, Rest), State, Acc, Stop) when ?is_char(C) ->
     parse_EntityValue_1(Rest, State, ?APPEND(Acc, C), Stop);
 parse_EntityValue_1(?CHARS_REST(_, _), State, _, _) ->
     fatal_error(bad_entval, State);
+?EMPTY3;
 ?CHECK3(A, B, C, D).
 
 %%----------------------------------------------------------------------
 %% XXX spec, etc. [70] '<!E' is in the stream,
 %% returns {Name, {internal, Value} | {external, PubSys} | {external, PubSys, NData}}
 %%----------------------------------------------------------------------
+parse_EntityDecl(?CHARS_REST("<!ENTITY", Rest), State) ->
+    {_, {Rest1, State1}} = parse_S(Rest, State),
+    case peek(Rest1, State1) of
+        {$%, {Rest2, State2}} ->
+            parse_PEDecl(Rest2, State2);
+        {_, {Rest2, State2}} ->
+            parse_GEDecl(Rest2, State2)
+    end;
 parse_EntityDecl(Stream, State)
     when Stream == ?CHARS("<!E");
          Stream == ?CHARS("<!EN");
@@ -2357,14 +2058,6 @@ parse_EntityDecl(Stream, State)
             fatal_error(bad_entity, PState1);
         {Bytes, State1} ->
             parse_EntityDecl(Bytes, State1)
-    end;
-parse_EntityDecl(?CHARS_REST("<!ENTITY", Rest), State) ->
-    {_, {Rest1, State1}} = parse_S(Rest, State),
-    case peek(Rest1, State1) of
-        {$%, {Rest2, State2}} ->
-            parse_PEDecl(Rest2, State2);
-        {_, {Rest2, State2}} ->
-            parse_GEDecl(Rest2, State2)
     end;
 parse_EntityDecl(?CHARS_REST(_, _), State) ->
     fatal_error(bad_entity, State);
@@ -2424,13 +2117,15 @@ parse_PEDef(Stream, State) ->
 %%----------------------------------------------------------------------
 %% XXX spec, etc. [76] leading S has been stripped 
 %%----------------------------------------------------------------------
-parse_NDataDecl(Stream, State) when
-    Stream == ?EMPTY;
-    Stream == ?CHARS("N");
-    Stream == ?CHARS("ND");
-    Stream == ?CHARS("NDA");
-    Stream == ?CHARS("NDAT");
-    Stream == ?CHARS("NDATA") ->
+parse_NDataDecl(?CHARS_REST("NDATA", Rest), State) ->
+    {_, {Rest1, State1}} = parse_S(Rest, State),
+    parse_Name(Rest1, State1);
+parse_NDataDecl(Stream, State) 
+    when Stream == ?CHARS("N");
+         Stream == ?CHARS("ND");
+         Stream == ?CHARS("NDA");
+         Stream == ?CHARS("NDAT");
+         Stream == ?CHARS("NDATA") ->
     case cf(Stream, State) of
         {error, Reason, PState1} ->
             fatal_error(Reason, PState1);
@@ -2439,16 +2134,20 @@ parse_NDataDecl(Stream, State) when
         {Bytes, State1} ->
             parse_NDataDecl(Bytes, State1)
     end;
-parse_NDataDecl(?CHARS_REST("NDATA", Rest), State) ->
-    {_, {Rest1, State1}} = parse_S(Rest, State),
-    parse_Name(Rest1, State1);
 parse_NDataDecl(?CHARS_REST(_, _), State) ->
     fatal_error(bad_ndata, State);
+?EMPTY1;
 ?CHECK1(A, B).
 
 %%----------------------------------------------------------------------
 %% XXX spec, etc. [45] '<!EL' is in the stream,
 %%----------------------------------------------------------------------
+parse_elementdecl(?CHARS_REST("<!ELEMENT", Rest), State) ->
+    {_, {Rest1, State1}} = parse_S(Rest, State),
+    {Name, {Rest2, State2}} = parse_Name(Rest1, State1),
+    {_, {Rest3, State3}} = parse_S(Rest2, State2),
+    {Spec, PState} = parse_contentspec(Rest3, State3),
+    {{Name, Spec}, PState};
 parse_elementdecl(Stream, State)
     when Stream == ?CHARS("<!EL");
          Stream == ?CHARS("<!ELE");
@@ -2464,12 +2163,6 @@ parse_elementdecl(Stream, State)
         {Bytes, State1} ->
             parse_elementdecl(Bytes, State1)
     end;
-parse_elementdecl(?CHARS_REST("<!ELEMENT", Rest), State) ->
-    {_, {Rest1, State1}} = parse_S(Rest, State),
-    {Name, {Rest2, State2}} = parse_Name(Rest1, State1),
-    {_, {Rest3, State3}} = parse_S(Rest2, State2),
-    {Spec, PState} = parse_contentspec(Rest3, State3),
-    {{Name, Spec}, PState};
 parse_elementdecl(?CHARS_REST(_, _), State) ->
     fatal_error(bad_element, State);
 ?CHECK1(A, B).
@@ -2477,22 +2170,6 @@ parse_elementdecl(?CHARS_REST(_, _), State) ->
 %%----------------------------------------------------------------------
 %% XXX spec, etc. [46]
 %%----------------------------------------------------------------------
-parse_contentspec(Stream, State)
-    when Stream == ?EMPTY;
-         Stream == ?CHARS("E");
-         Stream == ?CHARS("EM");
-         Stream == ?CHARS("EMP");
-         Stream == ?CHARS("EMPT");
-         Stream == ?CHARS("A");
-         Stream == ?CHARS("AN") ->
-    case cf(Stream, State) of
-        {error, Reason, PState1} ->
-            fatal_error(Reason, PState1);
-        {Stream, _} = PState1 ->
-            fatal_error(bad_element, PState1);
-        {Bytes, State1} ->
-            parse_contentspec(Bytes, State1)
-    end;
 parse_contentspec(?CHARS_REST("EMPTY", Rest), State) ->
     PState = trim_sgt(Rest, State),
     {empty, PState};
@@ -2507,8 +2184,24 @@ parse_contentspec(?CHARS_REST("(", Rest), State) ->
         {_, {Rest2, State2}} ->
             parse_children(Rest2, State2)
     end;
+parse_contentspec(Stream, State)
+    when Stream == ?CHARS("E");
+         Stream == ?CHARS("EM");
+         Stream == ?CHARS("EMP");
+         Stream == ?CHARS("EMPT");
+         Stream == ?CHARS("A");
+         Stream == ?CHARS("AN") ->
+    case cf(Stream, State) of
+        {error, Reason, PState1} ->
+            fatal_error(Reason, PState1);
+        {Stream, _} = PState1 ->
+            fatal_error(bad_element, PState1);
+        {Bytes, State1} ->
+            parse_contentspec(Bytes, State1)
+    end;
 parse_contentspec(?CHARS_REST(_, _), State) ->
     fatal_error(bad_element, State);
+?EMPTY1;
 ?CHECK1(A, B).
 
 %%----------------------------------------------------------------------
@@ -2535,15 +2228,6 @@ parse_seq(Stream, State) ->
             parse_seq_1(Rest3, State3, [Cp])
     end.
 
-parse_seq_1(?EMPTY, State, Acc) ->
-    case cf(?EMPTY, State) of
-        {error, Reason, PState1} ->
-            fatal_error(Reason, PState1);
-        {?EMPTY, _} = PState1 ->
-            fatal_error(bad_element, PState1);
-        {Bytes, State1} ->
-            parse_seq_1(Bytes, State1, Acc)
-    end;
 parse_seq_1(?CHARS_REST(")", Rest), State, Acc) ->
     {{seq, lists:reverse(Acc)}, {Rest, State}};
 parse_seq_1(?CHARS_REST(",", Rest), State, Acc) ->
@@ -2553,20 +2237,12 @@ parse_seq_1(?CHARS_REST(",", Rest), State, Acc) ->
     parse_seq_1(Rest3, State3, [Cp|Acc]);
 parse_seq_1(?CHARS_REST(_, _), State, _) ->
     fatal_error(bad_element, State);
+?EMPTY2;
 ?CHECK2(A, B, C).
 
 %%----------------------------------------------------------------------
 %% XXX spec, etc. [49]
 %%----------------------------------------------------------------------
-parse_choice(?EMPTY, State, Acc) ->
-    case cf(?EMPTY, State) of
-        {error, Reason, PState1} ->
-            fatal_error(Reason, PState1);
-        {?EMPTY, _} = PState1 ->
-            fatal_error(bad_element, PState1);
-        {Bytes, State1} ->
-            parse_choice(Bytes, State1, Acc)
-    end;
 parse_choice(?CHARS_REST(")", _), State, [_]) ->
     fatal_error(bad_element, State);
 parse_choice(?CHARS_REST(")", Rest), State, Acc) ->
@@ -2578,20 +2254,12 @@ parse_choice(?CHARS_REST(",", Rest), State, Acc) ->
     parse_choice(Rest3, State3, [Cp|Acc]);
 parse_choice(?CHARS_REST(_, _), State, _) ->
     fatal_error(bad_element, State);
+?EMPTY2;
 ?CHECK2(A, B, C).
 
 %%----------------------------------------------------------------------
 %% XXX spec, etc. [48] 
 %%----------------------------------------------------------------------
-parse_cp(?EMPTY, State) ->
-    case cf(?EMPTY, State) of
-        {error, Reason, PState1} ->
-            fatal_error(Reason, PState1);
-        {?EMPTY, _} = PState1 ->
-            fatal_error(bad_element, PState1);
-        {Bytes, State1} ->
-            parse_cp(Bytes, State1)
-    end;
 parse_cp(?CHARS_REST(C, _) = Stream, State) when ?is_name_start_char(C) ->
     {Name, {Rest1, State1}} = parse_Name(Stream, State),
     parse_quantifier(Rest1, State1, Name);
@@ -2601,18 +2269,9 @@ parse_cp(?CHARS_REST("(", Rest), State) ->
     parse_quantifier(Rest2, State2, Seq);
 parse_cp(?CHARS_REST(_, _), State) ->
     fatal_error(bad_element, State);
+?EMPTY1;
 ?CHECK1(A, B).
 
-
-parse_quantifier(?EMPTY, State, Acc) ->
-    case cf(?EMPTY, State) of
-        {error, Reason, PState1} ->
-            fatal_error(Reason, PState1);
-        {?EMPTY, _} = PState1 ->
-            fatal_error(bad_element, PState1);
-        {Bytes, State1} ->
-            parse_quantifier(Bytes, State1, Acc)
-    end;
 parse_quantifier(?CHARS_REST("?", Rest), State, Acc) -> 
     {{Acc, '?'}, {Rest, State}};
 parse_quantifier(?CHARS_REST("*", Rest), State, Acc) -> 
@@ -2621,11 +2280,22 @@ parse_quantifier(?CHARS_REST("+", Rest), State, Acc) ->
     {{Acc, '+'}, {Rest, State}};
 parse_quantifier(?CHARS_REST(_, _) = Stream, State, Acc) -> 
     {{Acc, one}, {Stream, State}};
+?EMPTY2;
 ?CHECK2(A, B, C).
 
 %%----------------------------------------------------------------------
 %% XXX spec, etc. [51] '(' has been trimmed '#' is in stream
 %%----------------------------------------------------------------------
+parse_Mixed(?CHARS_REST("#PCDATA", Rest), State) ->
+    {_, {Rest1, State1}} = parse_S_1(Rest, State, ?EMPTY),
+    case peek(Rest1, State1) of
+        {$|, {Rest2, State2}} ->
+            parse_Mixed_1(Rest2, State2, []);
+        {$), {Rest2, State2}} ->
+            parse_Mixed_2(Rest2, State2);
+        {_, PState} ->
+            fatal_error(bad_element, PState)
+    end;
 parse_Mixed(Stream, State)
     when Stream == ?CHARS("#");
          Stream == ?CHARS("#P");
@@ -2642,22 +2312,18 @@ parse_Mixed(Stream, State)
         {Bytes, State1} ->
             parse_Mixed(Bytes, State1)
     end;
-parse_Mixed(?CHARS_REST("#PCDATA", Rest), State) ->
-    {_, {Rest1, State1}} = parse_S_1(Rest, State, ?EMPTY),
-    case peek(Rest1, State1) of
-        {$|, {Rest2, State2}} ->
-            parse_Mixed_1(Rest2, State2, []);
-        {$), {Rest2, State2}} ->
-            parse_Mixed_2(Rest2, State2);
-        {_, PState} ->
-            fatal_error(bad_element, PState)
-    end;
 parse_Mixed(?CHARS_REST(_, _), State) ->
     fatal_error(bad_element, State);
 ?CHECK1(A, B).
 
-parse_Mixed_1(Stream, State, Acc) when Stream == ?EMPTY;
-                                       Stream == ?CHARS(")") ->
+parse_Mixed_1(?CHARS_REST("|", Rest), State, Acc) ->
+    {_, {Rest1, State1}} = parse_S_1(Rest, State, ?EMPTY),
+    {Name, {Rest2, State2}} = parse_Name(Rest1, State1),
+    {_, {Rest3, State3}} = parse_S_1(Rest2, State2, ?EMPTY),
+    parse_Mixed_1(Rest3, State3, [Name|Acc]);
+parse_Mixed_1(?CHARS_REST(")*", Rest), State, Acc) ->
+    {lists:reverse(Acc), {Rest, State}};
+parse_Mixed_1(Stream, State, Acc) when Stream == ?CHARS(")") ->
     case cf(Stream, State) of
         {error, Reason, PState1} ->
             fatal_error(Reason, PState1);
@@ -2666,15 +2332,9 @@ parse_Mixed_1(Stream, State, Acc) when Stream == ?EMPTY;
         {Bytes, State1} ->
             parse_Mixed_1(Bytes, State1, Acc)
     end;
-parse_Mixed_1(?CHARS_REST("|", Rest), State, Acc) ->
-    {_, {Rest1, State1}} = parse_S_1(Rest, State, ?EMPTY),
-    {Name, {Rest2, State2}} = parse_Name(Rest1, State1),
-    {_, {Rest3, State3}} = parse_S_1(Rest2, State2, ?EMPTY),
-    parse_Mixed_1(Rest3, State3, [Name|Acc]);
-parse_Mixed_1(?CHARS_REST(")*", Rest), State, Acc) ->
-    {lists:reverse(Acc), {Rest, State}};
 parse_Mixed_1(?CHARS_REST(_, _), State, _) ->
     fatal_error(bad_element, State);
+?EMPTY2;
 ?CHECK2(A, B, C).
 
 parse_Mixed_2(?CHARS_REST(")", Rest), State) ->
@@ -2714,15 +2374,6 @@ split_name(Name, #{split := Pattern} = State) ->
     end.
 
 % S? and closing '>'
-trim_sgt(?EMPTY, State) ->
-    case cf(?EMPTY, State) of
-        {error, Reason, PState1} ->
-            fatal_error(Reason, PState1);
-        {?EMPTY, _} = PState1 ->
-            fatal_error(bad_end, PState1);
-        {Bytes, State1} ->
-            trim_sgt(Bytes, State1)
-    end;
 trim_sgt(?CHARS_REST(">", Rest), State) ->
     {Rest, State};
 trim_sgt(?CHARS_REST(C, _) = Stream, State) when ?is_whitespace(C) ->
@@ -2730,10 +2381,12 @@ trim_sgt(?CHARS_REST(C, _) = Stream, State) when ?is_whitespace(C) ->
     trim_sgt(Rest1, State1);
 trim_sgt(?CHARS_REST(_, _), State) ->
     fatal_error(bad_end, State);
+?EMPTY1;
 ?CHECK1(A, B).
 
-trim_qgt(Stream, State) when Stream == ?EMPTY;
-                             Stream == ?CHARS("?") ->
+trim_qgt(?CHARS_REST("?>", Rest), State) ->
+    {Rest, State};
+trim_qgt(Stream, State) when Stream == ?CHARS("?") ->
     case cf(Stream, State) of
         {error, Reason, PState1} ->
             fatal_error(Reason, PState1);
@@ -2742,12 +2395,12 @@ trim_qgt(Stream, State) when Stream == ?EMPTY;
         {Stream1, State1} ->
             trim_qgt(Stream1, State1)
     end;
-trim_qgt(?CHARS_REST("?>", Rest), State) ->
-    {Rest, State};
 trim_qgt(?CHARS_REST(_, _), State) ->
     fatal_error(bad_end, State);
+?EMPTY1;
 ?CHECK1(A, B).
 
+peek(?CHARS_REST(C, _) = Stream, State) -> {C, {Stream, State}};
 peek(?EMPTY, State) ->
     case cf(?EMPTY, State) of
         {error, Reason, PState1} ->
@@ -2757,7 +2410,6 @@ peek(?EMPTY, State) ->
         {Stream, State1} ->
             peek(Stream, State1)
     end;
-peek(?CHARS_REST(C, _) = Stream, State) -> {C, {Stream, State}};
 ?CHECK1(A, B).
 
 
