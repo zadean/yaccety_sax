@@ -122,9 +122,8 @@
 
 
 -type xml_event() :: 
-    xml_attribute() | xml_characters() | xml_comment() | xml_dtd() |
-    xml_endDocument() | xml_endElement() | xml_entityDeclaration() |
-    xml_entityReference() | xml_namespace() | xml_notationDeclaration() |
-    xml_processingInstruction() | xml_startDocument() | xml_startElement().
+    xml_characters() | xml_comment() | xml_dtd() | xml_endDocument() |
+    xml_endElement() | xml_entityReference() | xml_processingInstruction() |
+    xml_startDocument() | xml_startElement().
 
 

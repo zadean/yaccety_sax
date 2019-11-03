@@ -213,9 +213,7 @@ event_endDocument({Stream, #{line := Line} = State}) ->
               line => Line},
     {Event, {Stream, State}}.
 
-%xml_entityDeclaration() -> ok. % in DTD
 xml_entityReference() -> ok. % only reported if not being handled
-%xml_notationDeclaration() -> ok. % in DTD
 
 -spec event_dtd(Text :: binary(),
                 Processed :: map(),
