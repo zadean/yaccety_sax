@@ -6,6 +6,15 @@
 %% API functions
 %% ====================================================================
 
+-export([event_characters/5,
+         event_comment/2,
+         event_dtd/3,
+         event_endDocument/1,
+         event_endElement/2,
+         event_processingInstruction/3,
+         event_startDocument/6,
+         event_startElement/4]).
+
 -export([file/1]).
 
 -export([get_element_text/1,
@@ -22,9 +31,10 @@
           line := pos_integer(),
           base := undefined | binary(),
           standalone := boolean(),
-          inscope_ns := list(list()),
+          inscope_ns := list(map()),
           position := list(atom()),
-          dtd := undefined | map()
+          dtd := undefined | map(),
+          split := term()
          }.
 -type ext_parser_state() :: {binary(), parser_state()}.
 -export_type([ext_parser_state/0]).
@@ -57,7 +67,8 @@ default_state() ->
       line         => 1,
       base         => undefined,
       standalone   => false,
-      inscope_ns   => [[{<<>>,<<>>},{<<"http://www.w3.org/XML/1998/namespace">>,<<"xml">>}]],
+      inscope_ns   => [#{<<>> => <<>>,
+                         <<"xml">> => <<"http://www.w3.org/XML/1998/namespace">>}],
       position     => [document],
       split        => binary:compile_pattern(<<":">>),
       dtd          => undefined
@@ -77,7 +88,7 @@ default_file_continuation(Filename) ->
                            {Bin, nil};
                        {error, _} = Err ->
                            Err
-                   end                       
+                   end
             end;
         {error, _} = OpenErr ->
             OpenErr
@@ -85,23 +96,23 @@ default_file_continuation(Filename) ->
 
 
 
--spec get_element_text(State) -> {Text, State}
-        when State :: parser_state(),
-             Text  :: xml_characters() | {error, no_character}.
+%% -spec get_element_text(State) -> {Text, State}
+%%         when State :: ext_parser_state(),
+%%              Text  :: xml_characters() | {error, no_character}.
 %% Returns the content of a text-only element or error if not a 
 %% text-only element.
+%% TODO implement
 get_element_text(State) ->
     {text, State}.
 
 -spec next_event(State) -> {Event, State}
-        when State :: parser_state(),
+        when State :: ext_parser_state(),
              Event :: xml_event() | {error, no_event}.
 %% Returns the next event or error if no event in the stream.
 next_event({Stream, #{position := []} = State}) ->
     {endDocument, {Stream, State}};
 next_event({Stream, #{position := [empty|Ps],
                       tags := [T|Ts]} = State}) ->
-    % Ns?
     event_endElement(T, {Stream, State#{position := Ps,
                                         tags := Ts}});
 next_event({Stream, #{position := [P|Ps]} = State}) ->
@@ -114,8 +125,11 @@ next_event({Stream, #{position := [P|Ps]} = State}) ->
                     next_event(State1)
             end;
         document ->
+            %% [1]  document ::= prolog element Misc*
+            %% [22] prolog   ::= XMLDecl? Misc* (doctypedecl Misc*)?
             parse_XMLDecl(Stream, State); % sets position to misc_pre_dtd 
         fragment ->
+            %% [22] prolog ::= XMLDecl? Misc* (doctypedecl Misc*)?
             parse_XMLDecl(Stream, State); % sets position to misc_pre_dtd 
         misc_pre_dtd ->
             case parse_Misc(Stream, State) of
@@ -145,23 +159,23 @@ next_event({Stream, #{position := [P|Ps]} = State}) ->
             case parse_Misc(Stream, State) of
                 {Event, {Bytes, State1}} ->
                     {Event, {Bytes, State1}};
-                {Stream1, State1} ->
-                    endDocument
-                    %{endDocument, {Stream1, State1}}
+                {_, _} = State1 ->
+                    event_endDocument(State1)
             end;
         _ ->
             {text, State}
     end.
 
--spec next_tag(State) -> {Event, State}
-        when State :: parser_state(),
-             Event :: xml_startElement() | xml_endElement() | 
-                      {error, no_whitespace}.
+%% -spec next_tag(State) -> {Event, State}
+%%         when State :: parser_state(),
+%%              Event :: xml_startElement() | xml_endElement() | 
+%%                       {error, no_whitespace}.
 %% Skips any insignificant space events until a startElement or 
 %%  endElement is reached. If anything other than space characters are 
 %%  encountered, an error is returned. This method should be used when 
 %%  processing element-only content because the parser is not able to recognize 
 %%  ignorable whitespace if the DTD is missing or not interpreted.
+%% TODO implement
 next_tag(State) ->
     {text, State}.
 
@@ -177,7 +191,7 @@ next_tag(State) ->
           EncSet :: boolean(), 
           StandAlone :: boolean(), 
           StandSet :: boolean(), 
-          State :: parser_state(),
+          State :: ext_parser_state(),
           Event :: xml_startDocument().
 event_startDocument(Version, Encoding, EncSet, StandAlone, StandSet, 
                     {_, #{line := Line}} = State) -> 
@@ -190,16 +204,23 @@ event_startDocument(Version, Encoding, EncSet, StandAlone, StandSet,
               sa_set => StandSet},
     {Event, State}.
 
+-spec event_endDocument(State) ->
+          {Event, State} when
+          State :: ext_parser_state(),
+          Event :: xml_endDocument().
+event_endDocument({Stream, #{line := Line} = State}) -> 
+    Event = #{type => endDocument,
+              line => Line},
+    {Event, {Stream, State}}.
+
 %xml_entityDeclaration() -> ok. % in DTD
 xml_entityReference() -> ok. % only reported if not being handled
 %xml_notationDeclaration() -> ok. % in DTD
 
--spec event_dtd(Text, Processed, State) ->
-          {Event, State} when
-          Text :: binary(),
-          Processed :: map(),
-          State :: parser_state(),
-          Event :: xml_dtd().
+-spec event_dtd(Text :: binary(),
+                Processed :: map(),
+                State :: ext_parser_state()) ->
+          {xml_dtd(), ext_parser_state()}.
 event_dtd(Text, Processed, {_, #{line := Line}} = State) -> 
     Event = #{type => dtd,
               line => Line,
@@ -212,7 +233,7 @@ event_dtd(Text, Processed, {_, #{line := Line}} = State) ->
           QName :: qname(),
           Attributes :: list(xml_attribute()),
           Namespaces :: list(xml_namespace()),
-          State :: parser_state(),
+          State :: ext_parser_state(),
           Event :: xml_startElement().
 event_startElement(QName, Attributes, Namespaces, {_, #{line := Line}} = State) ->
     Event = #{type => startElement,
@@ -225,19 +246,20 @@ event_startElement(QName, Attributes, Namespaces, {_, #{line := Line}} = State) 
 -spec event_endElement(QName, State) ->
           {Event, State} when
           QName :: qname(),
-          State :: parser_state(),
+          State :: ext_parser_state(),
           Event :: xml_endElement().
-event_endElement(QName, {_, #{line := Line}} = State) -> 
+event_endElement(QName, {Stream, #{line := Line,
+                                   inscope_ns := [_|Nss]} = State}) -> 
     Event = #{type => endElement,
               line => Line,
               qname => QName},
-    {Event, State}.
+    {Event, {Stream, State#{inscope_ns := Nss}}}.
 
 -spec event_processingInstruction(Target, Data, State) ->
           {Event, State} when
           Target :: binary(),
           Data :: binary(),
-          State :: parser_state(),
+          State :: ext_parser_state(),
           Event :: xml_processingInstruction().
 event_processingInstruction(Target, Data, {_, #{line := Line}} = State) ->
     Event = #{type => processingInstruction,
@@ -247,12 +269,12 @@ event_processingInstruction(Target, Data, {_, #{line := Line}} = State) ->
     {Event, State}.
 
 -spec event_characters(Data, CData, Ignorable, IsWs, State) ->
-          {Event, State} when
+          {Event, State} | State when
           Data :: binary(),
           CData :: boolean(),
           Ignorable :: boolean(),
           IsWs :: boolean(),
-          State :: parser_state(),
+          State :: ext_parser_state(),
           Event :: xml_characters().
 event_characters(_Data, _CData, _Ignorable, true, {_, #{whitespace := false}} = State) ->
     State;
@@ -268,15 +290,13 @@ event_characters(Data, CData, Ignorable, IsWs, {_, #{line := Line}} = State) ->
 -spec event_comment(Text, State) ->
           {Event, State} when
           Text :: binary(),
-          State :: parser_state(),
+          State :: ext_parser_state(),
           Event :: xml_comment().
 event_comment(Text, {_, #{line := Line}} = State) -> 
     Event = #{type => comment,
               line => Line,
               text => Text},
     {Event, State}.
-
-xml_endDocument() -> ok.
 
 %xml_attribute() -> ok. % in startElement
 %xml_namespace() -> ok. % in startElement/endElement
@@ -299,11 +319,11 @@ xml_endDocument() -> ok.
 -define(APPEND(Acc, Cs), <<Acc/binary, Cs/utf8>>).
 -define(APPEND_STREAM(Acc, Cs), <<Acc/binary, Cs/binary>>).
 
--define(PREPEND(Acc, Cs), if Cs < 256 -> [Acc,Cs]; true -> [Acc,<<Cs/utf8>>] end).
--define(PREPEND_SMALL(Acc, Cs), [Acc,Cs]).
-%-define(PREPEND(Acc, Cs), if Cs < 256 -> [Cs|Acc]; true -> [<<Cs/utf8>> | Acc] end).
+-define(APPEND_IO(Acc, Cs), if Cs < 256 -> [Acc,Cs]; true -> [Acc,<<Cs/utf8>>] end).
+-define(APPEND_IO_SMALL(Acc, Cs), [Acc,Cs]).
+%-define(APPEND_IO(Acc, Cs), if Cs < 256 -> [Cs|Acc]; true -> [<<Cs/utf8>> | Acc] end).
 
--define(CHECK1(Bytes, State),
+-define(CHECK1,
         ?FUNCTION_NAME(Bytes, State) when is_binary(Bytes) ->
             case unicode:characters_to_list(Bytes, ?ENCODING) of
                 {incomplete, _, _} ->
@@ -313,7 +333,7 @@ xml_endDocument() -> ok.
                     {error, lists:flatten(io_lib:format("Bad character, not in ~p\n", [?ENCODING])), {Bytes, State}}
             end).
 
--define(CHECK2(Bytes, State, A),
+-define(CHECK2,
         ?FUNCTION_NAME(Bytes, State, A) when is_binary(Bytes) ->
             case unicode:characters_to_list(Bytes, ?ENCODING) of
                 {incomplete, _, _} ->
@@ -323,7 +343,7 @@ xml_endDocument() -> ok.
                     {error, lists:flatten(io_lib:format("Bad character, not in ~p\n", [?ENCODING])), {Bytes, State}}
             end).
 
--define(CHECK3(Bytes, State, A, B),
+-define(CHECK3,
         ?FUNCTION_NAME(Bytes, State, A, B) when is_binary(Bytes) ->
             case unicode:characters_to_list(Bytes, ?ENCODING) of
                 {incomplete, _, _} ->
@@ -369,22 +389,17 @@ xml_endDocument() -> ok.
 %%----------------------------------------------------------------------
 %% XML character range
 %% [2] Char ::= #x9 | #xA | #xD | [#x20-#xD7FF] | [#xE000-#xFFFD] | 
-%% [#x10000-#x10FFFF]  /* any Unicode character, excluding the surrogate 
-%%                        blocks, FFFE, and FFFF. */
+%%              [#x10000-#x10FFFF]
+%% any Unicode character, excluding the surrogate blocks, FFFE, and FFFF.
 %%----------------------------------------------------------------------
 -define(is_char(C), ?space =< C, C =< 55295; C=:=?cr ; C=:=?lf ; C=:=?tab;
        57344 =< C, C =< 65533; 65536 =< C, C =< 1114111).
-
-%% -define(is_char(C),
-%%         C =:= 16#9 orelse C =:= 16#A orelse C =:= 16#D orelse 
-%%         (C >= 16#20 andalso C =/= 16#FFFE andalso C =/= 16#FFFF)).
 
 %% !! only use after all whitespace is captured !!
 -define(is_not_char(C),
         C < 16#20 ;
         C =:= 16#FFFE ;
         C =:= 16#FFFF).
-
 
 %%----------------------------------------------------------------------
 %% XML name start character
@@ -452,10 +467,6 @@ xml_endDocument() -> ok.
         C >= 16#20 , C =< 16#5A , C =/= 16#22 ,
          C =/= 16#26 , C =/= 16#3C , C =/= 16#3E).
 
-
-%% -spec parse_S(State) -> {WS, State}
-%%         when State :: parser_state(),
-%%              WS  :: binary().
 %%----------------------------------------------------------------------
 %% Consume whitespace characters
 %% params:  State
@@ -494,7 +505,7 @@ parse_S(?CHARS_REST(C, Rest), State, Acc) when C =:= ?space;
     parse_S_1(Rest, State, ?APPEND(Acc, C));
 parse_S(?CHARS_REST(_, _), State, _) ->
     fatal_error(no_whitespace, State);
-?CHECK2(A, B, C).
+?CHECK2.
 
 parse_S_1(?EMPTY, State, Acc) ->
     case cf(?EMPTY, State) of
@@ -525,41 +536,32 @@ parse_S_1(?CHARS_REST(C, Rest), State, Acc) when C =:= ?space;
     parse_S_1(Rest, State, ?APPEND(Acc, C));
 parse_S_1(?CHARS_REST(_, _) = Bytes, State, Acc) ->
     {Acc, {Bytes, State}};
-?CHECK2(A, B, C).
+?CHECK2.
 
-
-%% -spec parse_Name(Bytes, State) -> {Name, OutState}
-%%         when State :: parser_state(),
-%%              OutState :: ext_parser_state(),
-%%              Bytes :: binary(),
-%%              Name  :: binary().
 %%----------------------------------------------------------------------
 %% Consume Name (does not split prefix and local parts)
 %% params:  State
 %% returns: {Name, NewState}
 %% [5] Name ::= NameStartChar (NameChar)*          
 %%----------------------------------------------------------------------
+-spec parse_Name(binary(), parser_state()) -> {binary(), ext_parser_state()}.
 parse_Name(?CHARS_REST(C, Rest), State) when ?is_name_start_char(C) ->
-    parse_Name_1(Rest, State, ?PREPEND([], C));
+    parse_Name_1(Rest, State, ?APPEND_IO([], C));
 parse_Name(?CHARS_REST(_, _), State) ->
     fatal_error(bad_name, State);
 ?EMPTY1;
-?CHECK1(A, B).
+?CHECK1.
 
 parse_Name_1(?CHARS_REST(C, Rest) = Stream, State, Acc) ->
     if
         ?is_name_char(C) ->
-            parse_Name_1(Rest, State, ?PREPEND(Acc, C));
+            parse_Name_1(Rest, State, ?APPEND_IO(Acc, C));
         true ->
-            {iolist_to_binary(Acc), {Stream, State}}
+            {erlang:iolist_to_binary(Acc), {Stream, State}}
     end;
 ?EMPTY2;
-?CHECK2(A, B, C).
+?CHECK2.
 
--spec parse_Nmtoken(Stream, State) -> {Nmtoken, State}
-        when State   :: parser_state(),
-             Stream :: binary(),
-             Nmtoken :: binary().
 %%----------------------------------------------------------------------
 %% Consume Nmtoken
 %% params:  State
@@ -574,17 +576,17 @@ parse_Nmtoken(?CHARS_REST(C, Rest), State, Acc) when ?is_name_char(C) ->
 parse_Nmtoken(?CHARS_REST(_, _), State, _Acc) ->
     fatal_error(bad_nmtoken, State);
 ?EMPTY2;
-?CHECK2(A, B, C).
+?CHECK2.
 
 parse_Nmtoken_1(?CHARS_REST(C, Rest), State, Acc) when ?is_name_char(C) ->
     parse_Nmtoken_1(Rest, State, ?APPEND(Acc, C));
 parse_Nmtoken_1(?CHARS_REST(_, _) = Bytes, State, Acc) ->
     {Acc, {Bytes, State}};
 ?EMPTY2;
-?CHECK2(A, B, C).
+?CHECK2.
 
 %%----------------------------------------------------------------------
-%% XXX spec, etc. [11] 
+%% [11] SystemLiteral ::= ('"' [^"]* '"') | ("'" [^']* "'")
 %%----------------------------------------------------------------------
 parse_SystemLiteral(?CHARS_REST(C, Rest), State) when C == $';
                                                       C == $\" ->
@@ -592,7 +594,7 @@ parse_SystemLiteral(?CHARS_REST(C, Rest), State) when C == $';
 parse_SystemLiteral(?CHARS_REST(_, _), State) ->
     fatal_error(bad_pubid, State);
 ?EMPTY1;
-?CHECK1(A, B).
+?CHECK1.
 
 parse_SystemLiteral_1(?CHARS_REST(C, Rest), State, Acc, C) ->
     {Acc, {Rest, State}};
@@ -601,10 +603,10 @@ parse_SystemLiteral_1(?CHARS_REST(C, Rest), State, Acc, Stop) when ?is_char(C) -
 parse_SystemLiteral_1(?CHARS_REST(_, _), State, _, _) ->
     fatal_error(bad_pubid, State);
 ?EMPTY3;
-?CHECK3(A, B, C, D).
+?CHECK3.
 
 %%----------------------------------------------------------------------
-%% XXX spec, etc. [12] 
+%% [12] PubidLiteral ::= '"' PubidChar* '"' | "'" (PubidChar - "'")* "'"
 %%----------------------------------------------------------------------
 parse_PubidLiteral(?CHARS_REST(C, Rest), State) when C == $';
                                                      C == $\" ->
@@ -612,7 +614,7 @@ parse_PubidLiteral(?CHARS_REST(C, Rest), State) when C == $';
 parse_PubidLiteral(?CHARS_REST(_, _), State) ->
     fatal_error(bad_pubid, State);
 ?EMPTY1;
-?CHECK1(A, B).
+?CHECK1.
 
 parse_PubidLiteral_1(?CHARS_REST(C, Rest), State, Acc, C) ->
     {Acc, {Rest, State}};
@@ -621,10 +623,17 @@ parse_PubidLiteral_1(?CHARS_REST(C, Rest), State, Acc, Stop) when ?is_pubid_char
 parse_PubidLiteral_1(?CHARS_REST(_, _), State, _, _) ->
     fatal_error(bad_pubid, State);
 ?EMPTY3;
-?CHECK3(A, B, C, D).
+?CHECK3.
 
 %%----------------------------------------------------------------------
-%% XXX spec, etc. [66][67][68] the & char is removed
+%% [67] Reference ::= EntityRef | CharRef
+%% & char is removed
+%% [66] CharRef ::= '&#' [0-9]+ ';' | '&#x' [0-9a-fA-F]+ ';'
+%% [WFC: Legal Character]
+%% [68] EntityRef ::= '&' Name ';'
+%% [WFC: Entity Declared]
+%% [WFC: Parsed Entity]
+%% [WFC: No Recursion]
 %% can be EntityRef | CharRef
 %%----------------------------------------------------------------------
 parse_Reference(Stream, State) when Stream == ?CHARS("#");
@@ -644,7 +653,7 @@ parse_Reference(?CHARS_REST("#", Rest), State) ->
 parse_Reference(?CHARS_REST(_, _) = Stream, State) ->
     parse_Reference_3(Stream, State, ?EMPTY);
 ?EMPTY1;
-?CHECK1(A, B).
+?CHECK1.
 
 % hex parse until ';' return char
 parse_Reference_1(?CHARS_REST(C, Rest), State, Acc)
@@ -663,7 +672,7 @@ parse_Reference_1(?CHARS_REST(";", Rest), State, Acc) ->
 parse_Reference_1(?CHARS_REST(_, _), State, _) ->
     fatal_error(bad_charref, State);
 ?EMPTY2;
-?CHECK2(A, B, C).
+?CHECK2.
 
 % decimal parse until ';' return char
 parse_Reference_2(?CHARS_REST(C, Rest), State, Acc) when (C >= $0 andalso C =< $9) ->
@@ -679,7 +688,7 @@ parse_Reference_2(?CHARS_REST(";", Rest), State, Acc) ->
 parse_Reference_2(?CHARS_REST(_, _), State, _) ->
     fatal_error(bad_charref, State);
 ?EMPTY2;
-?CHECK2(A, B, C).
+?CHECK2.
 
 % Name parse until ';' return Name
 parse_Reference_3(?CHARS_REST(C, _) = Bytes, State, _) when ?is_name_start_char(C) ->
@@ -690,10 +699,13 @@ parse_Reference_3(?CHARS_REST(";", Rest), State, Acc) ->
 parse_Reference_3(?CHARS_REST(_, _), State, _) ->
     fatal_error(bad_charref, State);
 ?EMPTY2;
-?CHECK2(A, B, C).
+?CHECK2.
 
 %%----------------------------------------------------------------------
-%% XXX spec, etc. [69] Stream will always have at least the % char
+%% [69] PEReference ::= '%' Name ';'
+%% [WFC: No Recursion]
+%% [WFC: In DTD]
+%% Stream contains %
 %% returns %Name
 %%----------------------------------------------------------------------
 parse_PEReference(?CHARS_REST("%", Rest), State) ->
@@ -707,12 +719,8 @@ parse_PEReference_1(?CHARS_REST(";", Rest), State, Acc) ->
 parse_PEReference_1(?CHARS_REST(_, _), State, _) ->
     fatal_error(bad_charref, State);
 ?EMPTY2;
-?CHECK2(A, B, C).
+?CHECK2.
 
-
-%% -spec parse_Comment(State) -> {Comment, State}
-%%         when State   :: parser_state(),
-%%              Comment :: binary().
 
 %%----------------------------------------------------------------------
 %% Parse a Comment, leading '<!--' already removed
@@ -753,7 +761,7 @@ parse_Comment(?CHARS_REST(C, Rest), State, Acc) when ?is_char(C) ->
 parse_Comment(?CHARS_REST(_, _), State, _) ->
     fatal_error(bad_comment_character, State);
 ?EMPTY2;
-?CHECK2(A, B, C).
+?CHECK2.
 
 consume_Comment(Stream, State) 
     when Stream == ?CHARS("\r");
@@ -782,13 +790,8 @@ consume_Comment(?CHARS_REST(C, Rest), State) when ?is_char(C) ->
 consume_Comment(?CHARS_REST(_, _) = Stream, State) ->
     fatal_error(bad_comment_character, {Stream, State});
 ?EMPTY1;
-?CHECK1(A, B).
+?CHECK1.
 
-%% -spec parse_PI(State) -> {PI, State}
-%%         when State :: parser_state(),
-%%              Name :: binary(),
-%%              Data :: binary(),
-%%              PI    :: {Name, Data}.
 %%----------------------------------------------------------------------
 %% Parse a processing-instruction, leading '<?' already removed
 %% params:  State
@@ -812,13 +815,13 @@ parse_PI(?CHARS_REST(C, _) = Bytes, State) when ?is_name_start_char(C) ->
 parse_PI(?CHARS_REST(_, _), State) ->
     fatal_error(bad_pi, State);
 ?EMPTY1;
-?CHECK1(A, B).
+?CHECK1.
 
 parse_PI_1(?CHARS_REST(C, _) = Bytes, State) when ?is_whitespace(C) ->
     {_, {Bytes1, State1}} = parse_S(Bytes, State),
     parse_PI_2(Bytes1, State1, <<>>);
 ?EMPTY1;
-?CHECK1(A, B).
+?CHECK1.
 
 parse_PI_2(Stream, State, Acc) 
     when Stream == ?CHARS("?") ->
@@ -837,7 +840,7 @@ parse_PI_2(?CHARS_REST(C, Rest), State, Acc) when ?is_char(C) ->
 parse_PI_2(?CHARS_REST(_, _), State, _) ->
     fatal_error(bad_pi, State);
 ?EMPTY2;
-?CHECK2(A, B, C).
+?CHECK2.
 
 consume_PI(?CHARS_REST(C, _) = Bytes, State) when ?is_name_start_char(C) ->
     {Name, {Bytes1, State1}} = parse_Name(Bytes, State),
@@ -853,13 +856,13 @@ consume_PI(?CHARS_REST(C, _) = Bytes, State) when ?is_name_start_char(C) ->
 consume_PI(?CHARS_REST(_, _), State) ->
     fatal_error(bad_pi, State);
 ?EMPTY1;
-?CHECK1(A, B).
+?CHECK1.
 
 consume_PI_1(?CHARS_REST(C, _) = Bytes, State) when ?is_whitespace(C) ->
     {_, {Bytes1, State1}} = parse_S(Bytes, State),
     consume_PI_2(Bytes1, State1);
 ?EMPTY1;
-?CHECK1(A, B).
+?CHECK1.
 
 consume_PI_2(Stream, State) 
     when Stream == ?CHARS("?") ->
@@ -878,11 +881,8 @@ consume_PI_2(?CHARS_REST(C, Rest), State) when ?is_char(C) ->
 consume_PI_2(?CHARS_REST(_, _), State) ->
     fatal_error(bad_pi, State);
 ?EMPTY1;
-?CHECK1(A, B).
+?CHECK1.
 
-%% -spec parse_CharData(State) -> {CharData, State}
-%%         when State :: parser_state(),
-%%              CharData :: xml_characters().
 %%----------------------------------------------------------------------
 %% Parse character data. In content, everything that is not 
 %%   (element | Reference | CDSect | PI | Comment)
@@ -920,36 +920,33 @@ parse_CharData(?CHARS_REST("&", _) = Stream, State, IsWs, Acc) ->
 parse_CharData(?CHARS_REST("]]>", _), State, _, _) ->
     fatal_error(bad_char_data, State);
 parse_CharData(?CHARS_REST("\n", Rest), State, IsWs, Acc) ->
-    parse_CharData(Rest, ?bl(State), IsWs, ?PREPEND_SMALL(Acc, ?lf));
+    parse_CharData(Rest, ?bl(State), IsWs, ?APPEND_IO_SMALL(Acc, ?lf));
 parse_CharData(?CHARS_REST("\r\n", Rest), State, IsWs, Acc) ->
-    parse_CharData(Rest, ?bl(State), IsWs, ?PREPEND_SMALL(Acc, ?lf));
+    parse_CharData(Rest, ?bl(State), IsWs, ?APPEND_IO_SMALL(Acc, ?lf));
 parse_CharData(?CHARS_REST("\r", Rest), State, IsWs, Acc) ->
-    parse_CharData(Rest, ?bl(State), IsWs, ?PREPEND_SMALL(Acc, ?lf));
+    parse_CharData(Rest, ?bl(State), IsWs, ?APPEND_IO_SMALL(Acc, ?lf));
 parse_CharData(?CHARS_REST(" ", Rest), State, IsWs, Acc) ->
-    parse_CharData(Rest, State, IsWs, ?PREPEND_SMALL(Acc, ?space));
+    parse_CharData(Rest, State, IsWs, ?APPEND_IO_SMALL(Acc, ?space));
 parse_CharData(?CHARS_REST("\t", Rest), State, IsWs, Acc) ->
-    parse_CharData(Rest, State, IsWs, ?PREPEND_SMALL(Acc, ?tab));
+    parse_CharData(Rest, State, IsWs, ?APPEND_IO_SMALL(Acc, ?tab));
 parse_CharData(?CHARS_REST(C, Rest), State, _IsWs, Acc) ->
     if
         ?is_not_char(C) ->
             fatal_error(bad_char_data, State);
         true ->
-            parse_CharData(Rest, State, false, ?PREPEND(Acc, C))
+            parse_CharData(Rest, State, false, ?APPEND_IO(Acc, C))
     end;
-?CHECK3(A, B, C, D).
+?CHECK3.
 
 
-%% -spec parse_CDSect(State) -> {CDSect, State}
-%%         when State :: parser_state(),
-%%              CDSect :: xml_characters().
 %%----------------------------------------------------------------------
-%% Parse CDATA Section. '<![' is already removed. 
-%% params:  State
-%% returns: {CharData, IsWs, NewState}
 %% [18] CDSect  ::= CDStart CData CDEnd
 %% [19] CDStart ::= '<![CDATA['
 %% [20] CData   ::= (Char* - (Char* ']]>' Char*))
 %% [21] CDEnd   ::= ']]>'
+%% Parse CDATA Section. '<![' is already removed. 
+%% params:  State
+%% returns: {CharData, IsWs, NewState}
 %%----------------------------------------------------------------------
 parse_CDSect(?CHARS_REST("<![CDATA[", Rest), State) ->
     parse_CDSect(Rest, State, ?EMPTY, true);
@@ -970,7 +967,7 @@ parse_CDSect(Stream, State)
     end;
 parse_CDSect(?CHARS_REST(_, _), State) ->
     fatal_error(bad_cdata, State);
-?CHECK1(A, B).
+?CHECK1.
 
 parse_CDSect(Stream, State, Acc, IsWs)
     when Stream == ?CHARS("\r");
@@ -987,25 +984,25 @@ parse_CDSect(Stream, State, Acc, IsWs)
 parse_CDSect(?CHARS_REST("]]>", Rest), State, Acc, IsWs) ->
      event_characters(Acc, true, false, IsWs, {Rest, State});
 parse_CDSect(?CHARS_REST("\n", Rest), State, Acc, IsWs) ->
-    parse_CDSect(Rest, ?bl(State), ?PREPEND_SMALL(Acc, ?lf), IsWs);
+    parse_CDSect(Rest, ?bl(State), ?APPEND_IO_SMALL(Acc, ?lf), IsWs);
 parse_CDSect(?CHARS_REST("\r\n", Rest), State, Acc, IsWs) ->
-    parse_CDSect(Rest, ?bl(State), ?PREPEND_SMALL(Acc, ?lf), IsWs);
+    parse_CDSect(Rest, ?bl(State), ?APPEND_IO_SMALL(Acc, ?lf), IsWs);
 parse_CDSect(?CHARS_REST("\r", Rest), State, Acc, IsWs) ->
-    parse_CDSect(Rest, ?bl(State), ?PREPEND_SMALL(Acc, ?lf), IsWs);
+    parse_CDSect(Rest, ?bl(State), ?APPEND_IO_SMALL(Acc, ?lf), IsWs);
 parse_CDSect(?CHARS_REST(C, Rest), State, Acc, IsWs) when ?is_whitespace(C) ->
-    parse_CDSect(Rest, State, ?PREPEND_SMALL(Acc, C), IsWs);
+    parse_CDSect(Rest, State, ?APPEND_IO_SMALL(Acc, C), IsWs);
 parse_CDSect(?CHARS_REST(C, Rest), State, Acc, true) when ?is_char(C) ->
-    parse_CDSect(Rest, State, ?PREPEND(Acc, C), false);
+    parse_CDSect(Rest, State, ?APPEND_IO(Acc, C), false);
 parse_CDSect(?CHARS_REST(C, Rest), State, Acc, IsWs) when ?is_char(C) ->
-    parse_CDSect(Rest, State, ?PREPEND(Acc, C), IsWs);
+    parse_CDSect(Rest, State, ?APPEND_IO(Acc, C), IsWs);
 parse_CDSect(?CHARS_REST(_, _), State, _, _) ->
     fatal_error(bad_char_data, State);
 ?EMPTY3;
-?CHECK3(A, B, C, D).
+?CHECK3.
 
 
 %%----------------------------------------------------------------------
-%% XXX spec, etc. [80]
+%% [80] EncodingDecl ::= S 'encoding' Eq ('"' EncName '"' | "'" EncName "'" )
 %%----------------------------------------------------------------------
 parse_EncodingDecl(?CHARS_REST("encoding", Rest), State) ->
     {Rest1, State1} = parse_Eq(Rest, State),
@@ -1029,7 +1026,7 @@ parse_EncodingDecl(Stream, State)
 parse_EncodingDecl(?CHARS_REST(_, _) = Stream, State) ->
     {?EMPTY, {Stream, State}}; % was not an encoding
 ?EMPTY1;
-?CHECK1(A, B).
+?CHECK1.
 
 parse_EncodingDecl_1(?CHARS_REST(C, Rest), State) when C == $';
                                                        C == $\" ->
@@ -1037,8 +1034,13 @@ parse_EncodingDecl_1(?CHARS_REST(C, Rest), State) when C == $';
 parse_EncodingDecl_1(?CHARS_REST(_, _), State) ->
     fatal_error(bad_encoding, State);
 ?EMPTY1;
-?CHECK1(A, B).
+?CHECK1.
 
+
+%%----------------------------------------------------------------------
+%% [81] EncName ::= [A-Za-z] ([A-Za-z0-9._] | '-')* 
+%% /* Encoding name contains only Latin characters */
+%%----------------------------------------------------------------------
 parse_EncodingDecl_2(?CHARS_REST(C, Rest), State, Stop) 
     when C >= $A andalso C =< $Z;
          C >= $a andalso C =< $z ->
@@ -1046,7 +1048,7 @@ parse_EncodingDecl_2(?CHARS_REST(C, Rest), State, Stop)
 parse_EncodingDecl_2(?CHARS_REST(_, _), State, _) ->
     fatal_error(bad_char, State);
 ?EMPTY2;
-?CHECK2(A, B, C).
+?CHECK2.
 
 parse_EncodingDecl_3(?CHARS_REST(C, Rest), State, Acc, C) ->
     {Acc, {Rest, State}};
@@ -1059,10 +1061,10 @@ parse_EncodingDecl_3(?CHARS_REST(C, Rest), State, Acc, Stop)
 parse_EncodingDecl_3(?CHARS_REST(_, _), State, _, _) ->
     fatal_error(bad_char, State);
 ?EMPTY3;
-?CHECK3(A, B, C, D).
+?CHECK3.
 
 %%----------------------------------------------------------------------
-%% XXX spec, etc. [25]
+%% [25] Eq ::= S? '=' S?
 %%----------------------------------------------------------------------
 parse_Eq(?EMPTY, State) ->
     case cf(?EMPTY, State) of
@@ -1083,10 +1085,10 @@ parse_Eq_1(?CHARS_REST("=", Rest), State) ->
 parse_Eq_1(?CHARS_REST(C, R), State) ->
     fatal_error(bad_eq, {C, R, State});
 ?EMPTY1;
-?CHECK1(A, B).
+?CHECK1.
 
 %%----------------------------------------------------------------------
-%% XXX spec, etc. [26]
+%% [26] VersionNum ::= '1.' [0-9]+
 %%----------------------------------------------------------------------
 parse_VersionNum(?CHARS("1") = Stream, State) ->
     case cf(Stream, State) of
@@ -1107,7 +1109,7 @@ parse_VersionNum(?CHARS_REST("1.", Rest), State) ->
 parse_VersionNum(?CHARS_REST(_, _), State) ->
     fatal_error(bad_version_num, State);
 ?EMPTY1;
-?CHECK1(A, B).
+?CHECK1.
 
 parse_VersionNum_1(?CHARS_REST(C, Rest), State, Acc)
     when C >= $0 andalso C =< $9 ->
@@ -1115,10 +1117,11 @@ parse_VersionNum_1(?CHARS_REST(C, Rest), State, Acc)
 parse_VersionNum_1(?CHARS_REST(_, _) = Rest, State, Acc) ->
     {Acc, {Rest, State}};
 ?EMPTY2;
-?CHECK2(A, B, C).
+?CHECK2.
 
 %%----------------------------------------------------------------------
-%% XXX spec, etc. [24] leading space is trimmed already
+%% [24] VersionInfo ::= S 'version' Eq ("'" VersionNum "'" | '"' VersionNum '"')
+%% leading S is trimmed already
 %%----------------------------------------------------------------------
 parse_VersionInfo(?CHARS_REST("version", Rest), State) ->
     {Rest1, State1} = parse_Eq(Rest, State),
@@ -1141,7 +1144,7 @@ parse_VersionInfo(Stream, State)
 parse_VersionInfo(?CHARS_REST(_, _) = Bytes, State) ->
     {?EMPTY, {Bytes, State}}; % was not a version info
 ?EMPTY1;
-?CHECK1(A, B).
+?CHECK1.
 
 parse_VersionInfo_1(?CHARS_REST(C, Rest), State)
     when C == $';
@@ -1152,17 +1155,18 @@ parse_VersionInfo_1(?CHARS_REST(C, Rest), State)
 parse_VersionInfo_1(?CHARS_REST(_, _), State) ->
     fatal_error(bad_version_info, State);
 ?EMPTY1;
-?CHECK1(A, B).
+?CHECK1.
 
 parse_VersionInfo_2(?CHARS_REST(C, Rest), State, C) ->
     {Rest, State};
 parse_VersionInfo_2(?CHARS_REST(_, _), State, _) ->
     fatal_error(bad_version_info, State);
 ?EMPTY2;
-?CHECK2(A, B, C).
+?CHECK2.
 
 %%----------------------------------------------------------------------
-%% XXX spec, etc. [32] leading space is trimmed already
+%% [32] SDDecl ::= S 'standalone' Eq (("'" ('yes' | 'no') "'") | ('"' ('yes' | 'no') '"'))
+%% leading space is trimmed already
 %%----------------------------------------------------------------------
 parse_SDDecl(?CHARS_REST("standalone", Rest), State) ->
     {Rest1, State1} = parse_Eq(Rest, State),
@@ -1188,7 +1192,7 @@ parse_SDDecl(Stream, State)
 parse_SDDecl(?CHARS_REST(_, _) = Bytes, State) ->
     {?EMPTY, {Bytes, State}}; % was not a standalone decl
 ?EMPTY1;
-?CHECK1(A, B).
+?CHECK1.
 
 parse_SDDecl_1(?CHARS_REST(C, Rest), State)
     when C == $';
@@ -1199,7 +1203,7 @@ parse_SDDecl_1(?CHARS_REST(C, Rest), State)
 parse_SDDecl_1(?CHARS_REST(_, _), State) ->
     fatal_error(bad_version_info, State);
 ?EMPTY1;
-?CHECK1(A, B).
+?CHECK1.
 
 parse_SDDecl_2(?CHARS_REST("no", Rest), State) ->
     {false, {Rest, State}};
@@ -1220,17 +1224,17 @@ parse_SDDecl_2(Stream, State)
 parse_SDDecl_2(?CHARS_REST(_, _), State) ->
     fatal_error(bad_standalone, State);
 ?EMPTY1;
-?CHECK1(A, B).
+?CHECK1.
 
 parse_SDDecl_3(?CHARS_REST(C, Rest), State, C) ->
     {Rest, State};
 parse_SDDecl_3(?CHARS_REST(_, _), State, _) ->
     fatal_error(bad_standalone, State);
 ?EMPTY2;
-?CHECK2(A, B, C).
+?CHECK2.
 
 %%----------------------------------------------------------------------
-%% XXX spec, etc. [23] 
+%% [23] XMLDecl ::= '<?xml' VersionInfo EncodingDecl? SDDecl? S? '?>' 
 %%----------------------------------------------------------------------
 parse_XMLDecl(?CHARS_REST("<?xml", Rest), State) ->
     {_, {Rest1, State1}} = parse_S(Rest, State), % must be whitespace
@@ -1276,10 +1280,10 @@ parse_XMLDecl(?CHARS_REST(_, _) = Bytes, State) ->
     PState1 = set_next_parser_position(misc_pre_dtd, {Bytes, State}),
     event_startDocument(<<"1.0">>, <<"UTF-8">>, false, false, false, PState1);
 ?EMPTY1;
-?CHECK1(A, B).
+?CHECK1.
 
 %%----------------------------------------------------------------------
-%% XXX spec, etc. [27] 
+%% [27] Misc ::= Comment | PI | S 
 %%----------------------------------------------------------------------
 parse_Misc(?CHARS_REST("<!--", Rest), State) ->
     parse_Comment(Rest, State);
@@ -1296,8 +1300,6 @@ parse_Misc(Stream, State)
     case cf(Stream, State) of
         {error, no_bytes, PState1} ->
             PState1;
-        {error, Reason, PState1} ->
-            fatal_error(Reason, PState1);
         {?EMPTY, State1} ->
             {?EMPTY, State1};
         {Stream, _} = PState1 ->
@@ -1308,10 +1310,10 @@ parse_Misc(Stream, State)
 parse_Misc(?CHARS_REST(_, _) = Bytes, State) ->
     %% XXX return that it was not Misc?
     {Bytes, State};
-?CHECK1(A, B).
+?CHECK1.
 
 %%----------------------------------------------------------------------
-%% XXX spec, etc. [43] 
+%% [43] content ::= CharData? ((element | Reference | CDSect | PI | Comment) CharData?)* 
 %%----------------------------------------------------------------------
 parse_content(Stream, State)
     when Stream == ?EMPTY;
@@ -1344,10 +1346,11 @@ parse_content(?CHARS_REST("&", Rest), State) ->
     parse_content(Rest1, State1);
 parse_content(?CHARS_REST(_, _) = Bytes, State) ->
     parse_CharData(Bytes, State, true, ?EMPTY);
-?CHECK1(A, B).
+?CHECK1.
 
 %%----------------------------------------------------------------------
-%% XXX spec, etc. [28] 
+%% [28] doctypedecl ::= '<!DOCTYPE' S Name (S ExternalID)? S? ('[' intSubset ']' S?)? '>'
+%% [WFC: External Subset] 
 %%----------------------------------------------------------------------
 parse_doctypedecl(Stream, State)
     when Stream == ?CHARS("<");
@@ -1377,7 +1380,7 @@ parse_doctypedecl(?CHARS_REST("<", _) = Bytes, State) ->
 parse_doctypedecl(?CHARS_REST(C, _), State) ->
     fatal_error(bad_doctypedecl, {C, State});
 ?EMPTY1;
-?CHECK1(A, B).
+?CHECK1.
 
 % maybe external id, maybe subset
 parse_doctypedecl_1(Stream, State, Text, DTD) ->
@@ -1417,11 +1420,11 @@ parse_doctypedecl_3(Stream, State, Text, DTD) ->
     DTD1 = DTD#{external => PubSys},
     Text1 = case PubSys of
                 {?EMPTY, Sys} ->
-                    ?APPEND(?APPEND_STREAM(<<"SYSTEM \"">>, Sys), "\"");
+                    ?APPEND_STREAM(Text, ?APPEND(?APPEND_STREAM(<<"SYSTEM \"">>, Sys), "\""));
                 {Pub, Sys} ->
                     Pub1 = ?APPEND(?APPEND_STREAM(<<"PUBLIC \"">>, Pub), "\""),
                     Sys1 = ?APPEND(?APPEND_STREAM(<<" SYSTEM \"">>, Sys), "\""),
-                    ?APPEND_STREAM(Pub1, Sys1)
+                    ?APPEND_STREAM(Text, ?APPEND_STREAM(Pub1, Sys1))
             end,
     case peek(Rest1, State1) of
         {$[, {Stream2, State2}} -> % internal subset
@@ -1451,11 +1454,11 @@ parse_doctypedecl_4(?CHARS_REST(C, _) = Stream, State, Text, DTD) when ?is_white
 parse_doctypedecl_4(?CHARS_REST(_, _), State, _, _) ->
     fatal_error(bad_dtd, State);
 ?EMPTY3;
-?CHECK3(A, B, C, D).
-
+?CHECK3.
 
 %%----------------------------------------------------------------------
-%% XXX spec, etc. [75] return {Pub, Sys}
+%% [75] ExternalID ::= 'SYSTEM' S SystemLiteral | 'PUBLIC' S PubidLiteral S SystemLiteral
+%% return {Pub, Sys}
 %%----------------------------------------------------------------------
 parse_ExternalID(?CHARS_REST("SYSTEM", Rest), State) ->
     {_, {Rest1, State1}} = parse_S(Rest, State),
@@ -1489,10 +1492,10 @@ parse_ExternalID(Stream, State)
 parse_ExternalID(?CHARS_REST(_, _), State) ->
     fatal_error(bad_external_id, State);
 ?EMPTY1;
-?CHECK1(A, B).
+?CHECK1.
 
 %%----------------------------------------------------------------------
-%% XXX spec, etc. [83]
+%% [83] PublicID ::= 'PUBLIC' S PubidLiteral
 %%----------------------------------------------------------------------
 parse_PublicID(?CHARS_REST("PUBLIC", Rest), State) ->
     {_, {Rest1, State1}} = parse_S(Rest, State),
@@ -1514,10 +1517,14 @@ parse_PublicID(Stream, State)
 parse_PublicID(?CHARS_REST(_, _), State) ->
     fatal_error(bad_public_id, State);
 ?EMPTY1;
-?CHECK1(A, B).
+?CHECK1.
 
 %%----------------------------------------------------------------------
-%% XXX spec, etc. [82] '<!N' is in stream, returns {Name, Pub, Sys}
+%% Parses a notation declaration.
+%% Param: State
+%% Returns: {Name, Pub, Sys}
+%% "<!N" is in stream
+%% [82] NotationDecl ::= '<!NOTATION' S Name S (ExternalID | PublicID) S? '>'
 %%----------------------------------------------------------------------
 parse_NotationDecl(?CHARS_REST("<!NOTATION", Rest), State) ->
     {_, {Rest1, State1}} = parse_S(Rest, State),
@@ -1571,10 +1578,13 @@ parse_NotationDecl(Stream, State)
     end;
 parse_NotationDecl(?CHARS_REST(_, _), State) ->
     fatal_error(bad_notation, State);
-?CHECK1(A, B).
+?CHECK1.
 
 %%----------------------------------------------------------------------
-%% XXX spec, etc. [60] (required | implied | {fixed, AttValue}) 
+%% [60] DefaultDecl ::= '#REQUIRED' | '#IMPLIED' | (('#FIXED' S)? AttValue)
+%% [WFC: No < in Attribute Values]
+%% [WFC: No External Entity References]
+%% (required | implied | {fixed, AttValue}) 
 %%----------------------------------------------------------------------
 parse_DefaultDecl(?CHARS_REST("#REQUIRED", Rest), State) ->
     {required, {Rest, State}};
@@ -1613,10 +1623,11 @@ parse_DefaultDecl(Stream, State)
     end;
 parse_DefaultDecl(?CHARS_REST(_, _), State) -> 
     fatal_error(bad_default, State);
-?CHECK1(A, B).
+?CHECK1.
 
 %%----------------------------------------------------------------------
-%% XXX spec, etc. [59] '(' in stream 
+%% [59] Enumeration ::= '(' S? Nmtoken (S? '|' S? Nmtoken)* S? ')'
+%% '(' in stream 
 %%----------------------------------------------------------------------
 parse_Enumeration(?CHARS_REST("(", Rest), State) ->
     {_, {Rest1, State1}} = parse_S_1(Rest, State, ?EMPTY),
@@ -1625,7 +1636,7 @@ parse_Enumeration(?CHARS_REST("(", Rest), State) ->
     parse_Enumeration_1(Rest3, State3, [Name]);
 parse_Enumeration(?CHARS_REST(_, _), State) ->
     fatal_error(bad_enum, State);
-?CHECK1(A, B).
+?CHECK1.
 
 parse_Enumeration_1(?CHARS_REST(")", Rest), State, Acc) ->
     {{enumeration, lists:reverse(Acc)}, {Rest, State}};
@@ -1637,11 +1648,12 @@ parse_Enumeration_1(?CHARS_REST("|", Rest), State, Acc) ->
 parse_Enumeration_1(?CHARS_REST(_, _), State, _) ->
     fatal_error(bad_enum, State);
 ?EMPTY2;
-?CHECK2(A, B, C).
+?CHECK2.
 
 
 %%----------------------------------------------------------------------
-%% XXX spec, etc. [58] 'N' in stream 
+%% [58] NotationType ::= 'NOTATION' S '(' S? Name (S? '|' S? Name)* S? ')'
+%% 'N' in stream 
 %%----------------------------------------------------------------------
 parse_NotationType(?CHARS_REST("NOTATION", Rest), State) ->
     {_, {Rest1, State1}} = parse_S(Rest, State),
@@ -1664,7 +1676,7 @@ parse_NotationType(Stream, State)
     end;
 parse_NotationType(?CHARS_REST(_, _), State) ->
     fatal_error(bad_notation_type, State);
-?CHECK1(A, B).
+?CHECK1.
 
 parse_NotationType_1(?CHARS_REST("(", Rest), State) ->
     {_, {Rest1, State1}} = parse_S_1(Rest, State, ?EMPTY),
@@ -1674,7 +1686,7 @@ parse_NotationType_1(?CHARS_REST("(", Rest), State) ->
 parse_NotationType_1(?CHARS_REST(_, _), State) ->
     fatal_error(bad_notation_type, State);
 ?EMPTY1;
-?CHECK1(A, B).
+?CHECK1.
 
 parse_NotationType_2(?CHARS_REST(")", Rest), State, Acc) ->
     {{notation, lists:reverse(Acc)}, {Rest, State}};
@@ -1686,10 +1698,14 @@ parse_NotationType_2(?CHARS_REST("|", Rest), State, Acc) ->
 parse_NotationType_2(?CHARS_REST(_, _), State, _) ->
     fatal_error(bad_notation_type, State);
 ?EMPTY2;
-?CHECK2(A, B, C).
+?CHECK2.
 
 %%----------------------------------------------------------------------
-%% XXX spec, etc. [54][55][56][57]
+%% [54] AttType        ::= StringType | TokenizedType | EnumeratedType
+%% [55] StringType     ::= 'CDATA'
+%% [56] TokenizedType  ::= 'ID' | 'IDREF' | 'IDREFS' | 'ENTITY' | 'ENTITIES' |
+%%                         'NMTOKEN' | 'NMTOKENS'
+%% [57] EnumeratedType ::= NotationType | Enumeration
 %%----------------------------------------------------------------------
 parse_AttType(Stream, State)
     when Stream == ?CHARS("C");
@@ -1746,10 +1762,11 @@ parse_AttType(?CHARS_REST("(", _) = Stream, State) ->
 parse_AttType(?CHARS_REST(_, _), State) ->
     fatal_error(bad_att_type, State);
 ?EMPTY1;
-?CHECK1(A, B).
+?CHECK1.
 
 %%----------------------------------------------------------------------
-%% XXX spec, etc. [53] trims trailing'>'
+%% [53] AttDef ::= S Name S AttType S DefaultDecl
+%% trims trailing'>'
 %%----------------------------------------------------------------------
 parse_AttDef(?CHARS_REST(">", Rest), State, Acc) ->
     {lists:reverse(Acc), {Rest, State}};
@@ -1769,10 +1786,11 @@ parse_AttDef(?CHARS_REST(C, _) = Stream, State, Acc) when ?is_whitespace(C) ->
 parse_AttDef(?CHARS_REST(_, _), State, _) ->
     fatal_error(bad_att_def, State);
 ?EMPTY2;
-?CHECK2(A, B, C).
+?CHECK2.
 
 %%----------------------------------------------------------------------
-%% XXX spec, etc. [52] '<!A' in stream, returns {Name, AttDefs}
+%% [52] AttlistDecl ::= '<!ATTLIST' S Name AttDef* S? '>'
+%% '<!A' in stream, returns {Name, AttDefs}
 %%----------------------------------------------------------------------
 parse_AttlistDecl(?CHARS_REST("<!ATTLIST", Rest), State) ->
     {_, {Rest1, State1}} = parse_S(Rest, State),
@@ -1797,10 +1815,14 @@ parse_AttlistDecl(Stream, State)
     end;
 parse_AttlistDecl(?CHARS_REST(_, _), State) ->
     fatal_error(bad_att_list, State);
-?CHECK1(A, B).
+?CHECK1.
 
 %%----------------------------------------------------------------------
-%% XXX spec, etc. [28a][28b][29]
+%% [28a] DeclSep    ::= PEReference | S
+%% [WFC: PE Between Declarations]
+%% [28b] intSubset  ::= (markupdecl | DeclSep)*
+%% [29]  markupdecl ::= elementdecl | AttlistDecl | EntityDecl | NotationDecl | PI | Comment
+%% [WFC: PEs in Internal Subset]
 %%----------------------------------------------------------------------
 parse_intSubset(Stream, State, Text, DTD)
     when Stream == ?CHARS("<");
@@ -1859,39 +1881,49 @@ parse_intSubset(?CHARS_REST("%", _) = Stream, State, Text, DTD) ->
 parse_intSubset(?CHARS_REST(C, _), State, _, DTD) -> 
     fatal_error(bad_dtd, {DTD, C, State});
 ?EMPTY3;
-?CHECK3(A, B, C, D).
+?CHECK3.
 
 
 %%----------------------------------------------------------------------
-%% XXX spec, etc. [39][40]
+%% [39] element ::= EmptyElemTag | STag content ETag
+%% [WFC: Element Type Match]
+%% [40] STag    ::= '<' Name (S Attribute)* S? '>'
+%% [WFC: Unique Att Spec]
 %%----------------------------------------------------------------------
 parse_element(?CHARS_REST("<", Rest),#{tags := Tags,
+                                       inscope_ns := [LastNss|_] = Nss,
                                        position := P} = State) ->
     {Name, {Rest1, State1}} = parse_Name(Rest, State),
     {{Ns, As}, {Rest2, State2}} = parse_attributes(Rest1, State1),
-    %% here expand all the names and maybe add new layer to NSs
+    NamespaceMap = namespace_map_from_list(Ns, LastNss),
+    State3 = State2#{inscope_ns := [NamespaceMap|Nss]},
+    QName = qualify_element_name(Name, State3),
+    As1 = qualify_attribute_names(As, State3),
     %% XXX
     %% after this is when to add default attributes and namespaces
     %% normalize values
     %% mark attributes as defaulted or actually in the stream, etc.
     %% also flag for if this is namespaced
-    case parse_element_1(Rest2, State2) of
-        {true, {Rest3, State3}} ->
-            State4 = State3#{position := [empty|P],
-                             tags := [Name|Tags]},
-            event_startElement(Name, As, Ns, {Rest3, State4});
-        {false, {Rest3, State3}} ->
-            State4 = State3#{position := [content|P],
-                             tags := [Name|Tags]},
-            event_startElement(Name, As, Ns, {Rest3, State4})
+    case parse_element_1(Rest2, State3) of
+        {true, {Rest3, State4}} ->
+            State5 = State4#{position := [empty|P],
+                             tags := [QName|Tags]},
+            event_startElement(QName, As1, Ns, {Rest3, State5});
+        {false, {Rest3, State4}} ->
+            State5 = State4#{position := [content|P],
+                             tags := [QName|Tags]},
+            event_startElement(QName, As1, Ns, {Rest3, State5})
     end;
 parse_element(?CHARS_REST(_, _), State) ->
     fatal_error(bad_element, State);
 ?EMPTY1;
-?CHECK1(S, B).
+?CHECK1.
 
-
+%%----------------------------------------------------------------------
+%% [44] EmptyElemTag ::= '<' Name (S Attribute)* S? '/>'
+%% [WFC: Unique Att Spec]
 %% return {IsEmpty, State}, trims ws and end bracket off
+%%----------------------------------------------------------------------
 parse_element_1(?CHARS("/") = Stream, State) ->
     case cf(Stream, State) of
         {error, Reason, PState1} ->
@@ -1906,13 +1938,18 @@ parse_element_1(?CHARS_REST("/>", Rest), State) ->
 parse_element_1(?CHARS_REST(">", Rest), State) ->
     {false, {Rest, State}}.
 
+%%----------------------------------------------------------------------
+%% [41] Attribute ::= Name Eq AttValue 
+%% [WFC: No External Entity References]
+%% [WFC: No < in Attribute Values]
+%%----------------------------------------------------------------------
 parse_attributes(?CHARS_REST(C, _) = Bytes, State) when ?is_whitespace(C) ->
     {_, {Bytes1, State1}} = parse_S(Bytes, State),
     parse_attributes_1(Bytes1, State1, {[], []});
 parse_attributes(?CHARS_REST(_, _) = Bytes, State) ->
     {{[], []}, {Bytes, State}};
 ?EMPTY1;
-?CHECK1(A, B).
+?CHECK1.
 
 parse_attributes_1(?CHARS_REST("/", _) = Bytes, State, Acc) ->
     {Acc, {Bytes, State}};
@@ -1930,7 +1967,7 @@ parse_attributes_1(?CHARS_REST(C, _) = Bytes, State, Acc) when ?is_name_start_ch
 parse_attributes_1(?CHARS_REST(_, _), State, _) ->
     fatal_error(bad_attribute, State);
 ?EMPTY2;
-?CHECK2(A, B, C).
+?CHECK2.
 
 parse_attributes_2(Bytes, State, {Ns, As}) ->
     {Name, {Bytes1, State1}} = parse_Name(Bytes, State),
@@ -1948,11 +1985,10 @@ parse_attributes_2(Bytes, State, {Ns, As}) ->
                 false ->
                     {{Ns, [{Split, Value}|As]}, {Bytes3, State3}}
             end
-    end;
-?EMPTY2.
+    end.
 
 %%----------------------------------------------------------------------
-%% XXX spec, etc. [10] 
+%% [10] AttValue ::= '"' ([^<&"] | Reference)* '"' |  "'" ([^<&'] | Reference)* "'"
 %%----------------------------------------------------------------------
 parse_AttValue(?CHARS_REST(C, Rest), State) when C == $';
                                                  C == $\" ->
@@ -1960,7 +1996,7 @@ parse_AttValue(?CHARS_REST(C, Rest), State) when C == $';
 parse_AttValue(?CHARS_REST(_, _), State) ->
     fatal_error(bad_attval, State);
 ?EMPTY1;
-?CHECK1(A, B).
+?CHECK1.
 
 parse_AttValue_1(?CHARS_REST(C, Rest), State, Acc, C) ->
     {Acc, {Rest, State}};
@@ -1979,29 +2015,31 @@ parse_AttValue_1(?CHARS_REST(C, Rest), State, Acc, Stop) when ?is_char(C) ->
 parse_AttValue_1(?CHARS_REST(_, _), State, _, _) ->
     fatal_error(bad_attval, State);
 ?EMPTY3;
-?CHECK3(A, B, C, D).
+?CHECK3.
 
 %%----------------------------------------------------------------------
-%% XXX spec, etc. [42] '</' is already trimmed
+%% [42] ETag ::= '</' Name S? '>'
+%% '</' is already trimmed
 %%----------------------------------------------------------------------
 parse_ETag(?CHARS_REST(C, _) = Bytes, State) when ?is_name_start_char(C) ->
     {Name, {Bytes1, State1}} = parse_Name(Bytes, State),
     {Bytes2, #{position := [_|Ps], tags := [_|Ts]} = State2} = trim_sgt(Bytes1, State1),
     %% now check for tag match and pop tag, position, and maybe NS off the stack
-    %% return the event XXX
+    QName = qualify_element_name(Name, State),
     case Ps of
         [element|_Ps1] -> % last closing tag
-            event_endElement(Name, {Bytes2, State2#{position := [misc_post_element], tags := Ts}});
+            event_endElement(QName, {Bytes2, State2#{position := [misc_post_element], tags := Ts}});
         _ ->
-            event_endElement(Name, {Bytes2, State2#{position := Ps, tags := Ts}})
+            event_endElement(QName, {Bytes2, State2#{position := Ps, tags := Ts}})
     end;
 parse_ETag(?CHARS_REST(_, _), State) ->
     fatal_error(bad_endtag, State);
 ?EMPTY1;
-?CHECK1(A, B).
+?CHECK1.
 
 %%----------------------------------------------------------------------
-%% XXX spec, etc. [9] 
+%% [9] EntityValue ::= '"' ([^%&"] | PEReference | Reference)* '"' |
+%%                     "'" ([^%&'] | PEReference | Reference)* "'"
 %%----------------------------------------------------------------------
 parse_EntityValue(?CHARS_REST(C, Rest), State) when C == $';
                                                     C == $\" ->
@@ -2009,7 +2047,7 @@ parse_EntityValue(?CHARS_REST(C, Rest), State) when C == $';
 parse_EntityValue(?CHARS_REST(_, _), State) ->
     fatal_error(bad_entval, State);
 ?EMPTY1;
-?CHECK1(A, B).
+?CHECK1.
 
 parse_EntityValue_1(?CHARS_REST(C, Rest), State, Acc, C) ->
     {Acc, {Rest, State}};
@@ -2030,11 +2068,12 @@ parse_EntityValue_1(?CHARS_REST(C, Rest), State, Acc, Stop) when ?is_char(C) ->
 parse_EntityValue_1(?CHARS_REST(_, _), State, _, _) ->
     fatal_error(bad_entval, State);
 ?EMPTY3;
-?CHECK3(A, B, C, D).
+?CHECK3.
 
 %%----------------------------------------------------------------------
-%% XXX spec, etc. [70] '<!E' is in the stream,
-%% returns {Name, {internal, Value} | {external, PubSys} | {external, PubSys, NData}}
+%% [70] EntityDecl ::= GEDecl | PEDecl
+%% '<!E' is in the stream,
+%% {Name, {internal, Value} | {external, PubSys} | {external, PubSys, NData}}
 %%----------------------------------------------------------------------
 parse_EntityDecl(?CHARS_REST("<!ENTITY", Rest), State) ->
     {_, {Rest1, State1}} = parse_S(Rest, State),
@@ -2061,11 +2100,11 @@ parse_EntityDecl(Stream, State)
     end;
 parse_EntityDecl(?CHARS_REST(_, _), State) ->
     fatal_error(bad_entity, State);
-?CHECK1(A, B).
-
+?CHECK1.
 
 %%----------------------------------------------------------------------
-%% XXX spec, etc. [71] has 1 char on the stream at least 
+%% [71] GEDecl ::= '<!ENTITY' S Name S EntityDef S? '>'
+%% has 1 char on the stream at least 
 %% {general|parameter, internal|external|unparsed, Value}
 %%----------------------------------------------------------------------
 parse_GEDecl(Stream, State) -> 
@@ -2089,7 +2128,8 @@ parse_GEDecl(Stream, State) ->
     end.
 
 %%----------------------------------------------------------------------
-%% XXX spec, etc. [72] has '%' on the stream 
+%% [72] PEDecl ::= '<!ENTITY' S '%' S Name S PEDef S? '>'
+%% has '%' on the stream 
 %%----------------------------------------------------------------------
 parse_PEDecl(?CHARS_REST("%", Rest), State) ->
     {_, {Rest1, State1}} = parse_S(Rest, State),
@@ -2099,7 +2139,9 @@ parse_PEDecl(?CHARS_REST("%", Rest), State) ->
     {{?APPEND_STREAM(<<"%">>, Name), PE}, PState}.
 
 %%----------------------------------------------------------------------
-%% XXX spec, etc. [74][73] only reads EntityValue | ExternalID any NDataDecl after
+%% [73] EntityDef ::= EntityValue | (ExternalID NDataDecl?)
+%% [74] PEDef ::= EntityValue | ExternalID
+%% only reads EntityValue | ExternalID any NDataDecl after
 %%----------------------------------------------------------------------
 parse_PEDef(Stream, State) ->
     case peek(Stream, State) of
@@ -2115,7 +2157,9 @@ parse_PEDef(Stream, State) ->
     end.
 
 %%----------------------------------------------------------------------
-%% XXX spec, etc. [76] leading S has been stripped 
+%% [76] NDataDecl ::= S 'NDATA' S Name
+%% [VC: Notation Declared]
+%% leading S has been stripped 
 %%----------------------------------------------------------------------
 parse_NDataDecl(?CHARS_REST("NDATA", Rest), State) ->
     {_, {Rest1, State1}} = parse_S(Rest, State),
@@ -2137,10 +2181,11 @@ parse_NDataDecl(Stream, State)
 parse_NDataDecl(?CHARS_REST(_, _), State) ->
     fatal_error(bad_ndata, State);
 ?EMPTY1;
-?CHECK1(A, B).
+?CHECK1.
 
 %%----------------------------------------------------------------------
-%% XXX spec, etc. [45] '<!EL' is in the stream,
+%% [45] elementdecl ::= '<!ELEMENT' S Name S contentspec S? '>'
+%% '<!EL' is in the stream,
 %%----------------------------------------------------------------------
 parse_elementdecl(?CHARS_REST("<!ELEMENT", Rest), State) ->
     {_, {Rest1, State1}} = parse_S(Rest, State),
@@ -2165,10 +2210,10 @@ parse_elementdecl(Stream, State)
     end;
 parse_elementdecl(?CHARS_REST(_, _), State) ->
     fatal_error(bad_element, State);
-?CHECK1(A, B).
+?CHECK1.
 
 %%----------------------------------------------------------------------
-%% XXX spec, etc. [46]
+%% [46] contentspec ::= 'EMPTY' | 'ANY' | Mixed | children
 %%----------------------------------------------------------------------
 parse_contentspec(?CHARS_REST("EMPTY", Rest), State) ->
     PState = trim_sgt(Rest, State),
@@ -2202,10 +2247,14 @@ parse_contentspec(Stream, State)
 parse_contentspec(?CHARS_REST(_, _), State) ->
     fatal_error(bad_element, State);
 ?EMPTY1;
-?CHECK1(A, B).
+?CHECK1.
 
 %%----------------------------------------------------------------------
-%% XXX spec, etc. [47][48][49][50] '(' has been trimmed, one char on stream
+%% [47] children ::= (choice | seq) ('?' | '*' | '+')?
+%% [48] cp       ::= (Name | choice | seq) ('?' | '*' | '+')?
+%% [49] choice   ::= '(' S? cp ( S? '|' S? cp )+ S? ')'
+%% [50] seq      ::= '(' S? cp ( S? ',' S? cp )* S? ')'
+%% '(' has been trimmed, one char on stream
 %%----------------------------------------------------------------------
 parse_children(Stream, State) -> 
     {Acc, {Rest1, State1}} = parse_seq(Stream, State),
@@ -2213,7 +2262,8 @@ parse_children(Stream, State) ->
 
 
 %%----------------------------------------------------------------------
-%% XXX spec, etc. [50][49] '(' 'S?' has been trimmed
+%% [49] choice   ::= '(' S? cp ( S? '|' S? cp )+ S? ')'
+%% [50] seq      ::= '(' S? cp ( S? ',' S? cp )* S? ')'
 %% if a choice and not seq, passes to parse_choice
 %%----------------------------------------------------------------------
 parse_seq(Stream, State) ->
@@ -2238,10 +2288,10 @@ parse_seq_1(?CHARS_REST(",", Rest), State, Acc) ->
 parse_seq_1(?CHARS_REST(_, _), State, _) ->
     fatal_error(bad_element, State);
 ?EMPTY2;
-?CHECK2(A, B, C).
+?CHECK2.
 
 %%----------------------------------------------------------------------
-%% XXX spec, etc. [49]
+%% [49] choice   ::= '(' S? cp ( S? '|' S? cp )+ S? ')'
 %%----------------------------------------------------------------------
 parse_choice(?CHARS_REST(")", _), State, [_]) ->
     fatal_error(bad_element, State);
@@ -2255,10 +2305,10 @@ parse_choice(?CHARS_REST(",", Rest), State, Acc) ->
 parse_choice(?CHARS_REST(_, _), State, _) ->
     fatal_error(bad_element, State);
 ?EMPTY2;
-?CHECK2(A, B, C).
+?CHECK2.
 
 %%----------------------------------------------------------------------
-%% XXX spec, etc. [48] 
+%% [48] cp       ::= (Name | choice | seq) ('?' | '*' | '+')?
 %%----------------------------------------------------------------------
 parse_cp(?CHARS_REST(C, _) = Stream, State) when ?is_name_start_char(C) ->
     {Name, {Rest1, State1}} = parse_Name(Stream, State),
@@ -2270,7 +2320,7 @@ parse_cp(?CHARS_REST("(", Rest), State) ->
 parse_cp(?CHARS_REST(_, _), State) ->
     fatal_error(bad_element, State);
 ?EMPTY1;
-?CHECK1(A, B).
+?CHECK1.
 
 parse_quantifier(?CHARS_REST("?", Rest), State, Acc) -> 
     {{Acc, '?'}, {Rest, State}};
@@ -2281,10 +2331,11 @@ parse_quantifier(?CHARS_REST("+", Rest), State, Acc) ->
 parse_quantifier(?CHARS_REST(_, _) = Stream, State, Acc) -> 
     {{Acc, one}, {Stream, State}};
 ?EMPTY2;
-?CHECK2(A, B, C).
+?CHECK2.
 
 %%----------------------------------------------------------------------
-%% XXX spec, etc. [51] '(' has been trimmed '#' is in stream
+%% [51] Mixed ::= '(' S? '#PCDATA' (S? '|' S? Name)* S? ')*' | '(' S? '#PCDATA' S? ')'
+%% '(' has been trimmed '#' is in stream
 %%----------------------------------------------------------------------
 parse_Mixed(?CHARS_REST("#PCDATA", Rest), State) ->
     {_, {Rest1, State1}} = parse_S_1(Rest, State, ?EMPTY),
@@ -2314,7 +2365,7 @@ parse_Mixed(Stream, State)
     end;
 parse_Mixed(?CHARS_REST(_, _), State) ->
     fatal_error(bad_element, State);
-?CHECK1(A, B).
+?CHECK1.
 
 parse_Mixed_1(?CHARS_REST("|", Rest), State, Acc) ->
     {_, {Rest1, State1}} = parse_S_1(Rest, State, ?EMPTY),
@@ -2335,32 +2386,41 @@ parse_Mixed_1(Stream, State, Acc) when Stream == ?CHARS(")") ->
 parse_Mixed_1(?CHARS_REST(_, _), State, _) ->
     fatal_error(bad_element, State);
 ?EMPTY2;
-?CHECK2(A, B, C).
+?CHECK2.
 
 parse_Mixed_2(?CHARS_REST(")", Rest), State) ->
     {mixed, {Rest, State}}.
 
-expand_qname({P, L}, [Ns|Nss]) ->
-    case lists:keyfind(P, 2, Ns) of
-        false ->
-            expand_qname({P, L}, Nss);
-        {N, _} ->
-            {N, L, P}
-    end;
-expand_qname(_, []) ->
-    {error, unknown_prefix}.
+
+qualify_element_name(Name, #{inscope_ns := [Nss|_]} = State) ->
+    Split = split_name(Name, State),
+    expand_qname(Split, Nss).
+
+qualify_attribute_names(Atts, #{inscope_ns := [Nss|_]} = State) ->
+    [Att#{qname := qualify_attribute_name(Name, State, Nss)} ||
+     #{qname := Name} = Att <- Atts].
+
+qualify_attribute_name(Name, State, Nss) ->
+    Split = split_name(Name, State),
+    expand_attribute_qname(Split, Nss).
+
+expand_qname({P, L}, Nss) ->
+    case Nss of
+        #{P := N} ->
+            {N, P, L};
+        _ ->
+            fatal_error(unknown_prefix, P)
+    end.
 
 expand_attribute_qname({<<>>, L}, _) ->
-    {<<>>, L, <<>>};
-expand_attribute_qname({P, L}, [Ns|Nss]) ->
-    case lists:keyfind(P, 2, Ns) of
-        false ->
-            expand_attribute_qname({P, L}, Nss);
-        {N, _} ->
-            {N, L, P}
-    end;
-expand_attribute_qname(_, []) ->
-    {error, unknown_prefix}.
+    {<<>>, <<>>, L};
+expand_attribute_qname({P, L}, Nss) ->
+    case Nss of
+        #{P := N} ->
+            {N, P, L};
+        _ ->
+            fatal_error(unknown_prefix, P)
+    end.
 
 
 split_name(Name, #{split := Pattern} = State) ->
@@ -2382,7 +2442,7 @@ trim_sgt(?CHARS_REST(C, _) = Stream, State) when ?is_whitespace(C) ->
 trim_sgt(?CHARS_REST(_, _), State) ->
     fatal_error(bad_end, State);
 ?EMPTY1;
-?CHECK1(A, B).
+?CHECK1.
 
 trim_qgt(?CHARS_REST("?>", Rest), State) ->
     {Rest, State};
@@ -2398,7 +2458,7 @@ trim_qgt(Stream, State) when Stream == ?CHARS("?") ->
 trim_qgt(?CHARS_REST(_, _), State) ->
     fatal_error(bad_end, State);
 ?EMPTY1;
-?CHECK1(A, B).
+?CHECK1.
 
 peek(?CHARS_REST(C, _) = Stream, State) -> {C, {Stream, State}};
 peek(?EMPTY, State) ->
@@ -2410,13 +2470,13 @@ peek(?EMPTY, State) ->
         {Stream, State1} ->
             peek(Stream, State1)
     end;
-?CHECK1(A, B).
+?CHECK1.
 
 
 set_next_parser_position(Pos, {Stream, #{position := S} = State}) ->
     {Stream, State#{position := [Pos|S]}}.
 
-resolve_parameter_entity(PERef, #{params := Params} = _DTD, State) ->
+resolve_parameter_entity(PERef, #{proc := #{params := Params}} = _DTD, State) ->
     case Params of
         #{PERef := {external, PubSys}} ->
             %% XXX maybe resolve then add the value to the DTD to cache it
@@ -2458,6 +2518,11 @@ empty_proc_dtd() ->
       refs => #{},
       params => #{}
      }.
+
+namespace_map_from_list([#{prefix := P, uri := U}|T], Map) ->
+    namespace_map_from_list(T, Map#{P => U});
+namespace_map_from_list([], Map) ->
+    Map.
 
 -spec cf(binary(), parser_state()) ->
           {error, term(), ext_parser_state()} | ext_parser_state().
