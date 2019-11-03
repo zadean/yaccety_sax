@@ -15,7 +15,10 @@
          event_startDocument/6,
          event_startElement/4]).
 
--export([file/1]).
+-export([file/1, file/2]).
+-export([stream/1, stream/2]).
+
+-export([write_event/2]).
 
 -export([get_element_text/1,
          next_event/1,
@@ -26,18 +29,30 @@
         #{whitespace := boolean(),
           comments := boolean(),
           proc_inst := boolean(),
-          continuation := undefined | fun(),
+          continuation := undefined | {fun(), any()},
           tags := [qname()],
           line := pos_integer(),
           base := undefined | binary(),
           standalone := boolean(),
           inscope_ns := list(map()),
           position := list(atom()),
-          dtd := undefined | map(),
+          dtd := undefined | processed_dtd(),
           split := term()
          }.
 -type ext_parser_state() :: {binary(), parser_state()}.
 -export_type([ext_parser_state/0]).
+
+-type options() ::
+    [
+     {whitespace, boolean()} | %% report whitespace character events?
+     {comments, boolean()} |   %% report comment events?
+     {proc_inst, boolean()} |  %% report processing-instruction events?
+     {base, binary()} |        %% base-uri of this stream
+     {dtd, processed_dtd()} |  %% pre-processed dtd to use for this stream
+     %% Continuation fun and State
+     {continuation, {Fun :: fun(), State :: any()}}
+    ].
+-export_type([options/0]).
 
 -define(LINE_NUMBERS, true).
 
@@ -48,15 +63,43 @@ bump_line(#{line := L} = State) -> State#{line := L + 1}.
 -define(bl(State), State).
 -endif.
 
-file(Filename) when is_list(Filename) ->
-    file(unicode:characters_to_binary(Filename));
-file(Filename) ->
-    State = default_state(),
+stream(Stream) -> stream(Stream, []).
+
+stream(Stream, Opts) ->
+    State0 = default_state(),
+    State = opts(Opts, State0),
+    {Stream, State}.
+
+file(Filename) -> file(Filename, []).
+
+file(Filename, Opts) when is_list(Filename) ->
+    file(unicode:characters_to_binary(Filename), Opts);
+file(Filename, Opts) ->
+    State0 = default_state(),
+    State = opts(Opts, State0),
     Cont = default_file_continuation(Filename),
     Base = filename:dirname(filename:absname(Filename)),
     State1 = State#{continuation := {Cont, <<>>},
                     base         := Base},
     {<<>>, State1}.
+
+opts([{continuation, {F, S}}|T], Acc) when is_function(F, 1) ->
+    opts(T, Acc#{continuation => {F, S}});
+opts([{base, Base}|T], Acc) when is_binary(Base) ->
+    opts(T, Acc#{base => Base});
+opts([{dtd, DTD}|T], Acc) when is_map(DTD) ->
+    opts(T, Acc#{dtd => DTD});
+opts([{proc_inst, Bool}|T], Acc) when is_boolean(Bool) ->
+    opts(T, Acc#{proc_inst => Bool});
+opts([{comments, Bool}|T], Acc) when is_boolean(Bool) ->
+    opts(T, Acc#{comments => Bool});
+opts([{whitespace, Bool}|T], Acc) when is_boolean(Bool) ->
+    opts(T, Acc#{whitespace => Bool});
+opts([], Acc) -> Acc;
+opts([H|_], _) -> 
+    fatal_error(unknown_option, H).
+
+
 
 default_state() ->
     #{whitespace   => false,
@@ -93,6 +136,51 @@ default_file_continuation(Filename) ->
         {error, _} = OpenErr ->
             OpenErr
     end.
+
+write_event(#{type := startDocument}, {Bytes, State}) ->
+    % XXX this should add version, standalone, encoding
+    {Bytes, State};
+write_event(#{type := endDocument}, {Bytes, State}) ->
+    {Bytes, State};
+write_event(#{type := characters,
+              data := Data}, {Bytes, State}) ->
+    % XXX should normalize text, maybe CDATA wrap
+    {<<Bytes/binary, Data/binary>>, State};
+write_event(#{type := endElement,
+              qname := {_, Px, Ln}}, {Bytes, State}) ->
+    case Px of
+        <<>> ->
+            {<<Bytes/binary, "</", Ln/binary, ">">>, State};
+        _ ->
+            {<<Bytes/binary, "</", Px/binary, ":", Ln/binary, ">">>, State}
+    end;
+write_event(#{type := startElement,
+              namespaces := Nss,
+              attributes := Atts,
+              qname := QName}, {Bytes, State}) ->
+    NmFun = fun({_, <<>>, Ln}) ->
+                   Ln;
+               ({_, Px, Ln}) ->
+                   <<Px/binary, ":", Ln/binary>>
+            end,
+    Name = NmFun(QName),
+    NsFun = fun(#{prefix := <<>>, uri := NsUri}) ->
+                   <<" xmlns=\"", NsUri, "\"">>;
+               (#{prefix := NsPx, uri := NsUri}) ->
+                   <<" xmlns:", NsPx/binary, "=\"", NsUri, "\"">>
+            end,
+    AtFun = fun(#{qname := AQName,
+                  value := AValue}) ->
+                   AQName1 = NmFun(AQName),
+                   <<" ", AQName1/binary, "=\"", AValue/binary, "\"">>
+            end,
+    IoList = ["<",Name, [NsFun(N) || N <- Nss], [AtFun(A) || A <- Atts], ">"],
+    Out = erlang:iolist_to_binary(IoList),
+    {<<Bytes/binary, Out/binary>>, State};
+
+% TODO processing-instructions, comments
+write_event(Event, {Bytes, State}) ->
+    {Bytes, State}.
 
 
 
