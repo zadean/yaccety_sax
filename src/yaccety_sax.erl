@@ -246,7 +246,7 @@ next_event(#ys_state{position = [misc_post_element | _], stream_offset = {Stream
         {Event, State1} ->
             {Event, State1};
         State1 ->
-            event_endDocument(State1)
+            event_endDocument(State1#ys_state{stream_offset = {<<>>, 0}})
     end;
 next_event(State) ->
     {text, State}.

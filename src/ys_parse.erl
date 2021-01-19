@@ -9,17 +9,11 @@
 ]).
 
 % -define(LINE_NUMBERS, true).
-
 % -ifdef(LINE_NUMBERS).
-
 % -define(bl(State), bump_line(State)).
-
 % bump_line(#{line := L} = State) -> State#{line := L + 1}.
-
 % -else.
-
 % -define(bl(State), State).
-
 % -endif.
 
 -include("yaccety_sax.hrl").
@@ -32,9 +26,9 @@
 append(Thing, []) -> Thing;
 append(Thing, Acc) -> [Acc, Thing].
 
-cf(_Stream, #ys_state{continuation = undefined} = State, _) ->
+cf(#ys_state{continuation = undefined} = State) ->
     {no_bytes, State};
-cf(_, #ys_state{continuation = {CF, CS}} = State, empty) ->
+cf(#ys_state{continuation = {CF, CS}} = State) ->
     case CF(CS) of
         {Bin, CS1} when is_binary(Bin) ->
             {Bin, State#ys_state{continuation = {CF, CS1}}};
@@ -43,7 +37,10 @@ cf(_, #ys_state{continuation = {CF, CS}} = State, empty) ->
             {<<>>, State#ys_state{continuation = undefined}};
         {error, Err} ->
             {error, {Err, State}}
-    end;
+    end.
+
+cf(_, #ys_state{continuation = undefined} = State, _) ->
+    {no_bytes, State};
 cf(Part, #ys_state{continuation = {CF, CS}} = State, {partial, BytesNeeded}) ->
     case CF(CS) of
         {Bin, CS1} when is_binary(Bin), byte_size(Bin) >= BytesNeeded ->
@@ -164,7 +161,7 @@ cf(Part, #ys_state{continuation = {CF, CS}} = State, {partial, BytesNeeded}) ->
 %%
 ?FUNCTION_NAME(<<>>, Stream, Pos, Len, State, Acc) ->
     Acc1 = ?ACC(Stream, Pos, Len, Acc),
-    {Stream1, State1} = cf(<<>>, State, empty),
+    {Stream1, State1} = cf(State),
     ?FUNCTION_NAME(Stream1, Stream1, 0, 0, State1, Acc1);
 ?FUNCTION_NAME(Bytes = <<30:5, _:3>>, Stream, Pos, Len, State, Acc) -> ?CHARPARTFUN(3);
 ?FUNCTION_NAME(Bytes = <<30:5, _:3, 2:2, _:6>>, Stream, Pos, Len, State, Acc) -> ?CHARPARTFUN(2);
@@ -261,7 +258,7 @@ consume_s(<<Char/utf8, Rest/binary>>, Stream, Pos, State) when
 ->
     maybe_consume_s(Rest, Stream, Pos + 1, State);
 consume_s(<<>>, _Stream, _Pos, State) ->
-    {Stream1, State1} = cf(<<>>, State, empty),
+    {Stream1, State1} = cf(State),
     consume_s(Stream1, Stream1, 0, State1);
 consume_s(_, _Stream, _Pos, State) ->
     fatal_error(missing_whitespace, State).
@@ -273,7 +270,7 @@ maybe_consume_s(<<Char/utf8, Rest/binary>>, Stream, Pos, State, _) when
 ->
     maybe_consume_s(Rest, Stream, Pos + 1, State, true);
 maybe_consume_s(<<>>, _Stream, _Pos, State, Found) ->
-    {Stream1, State1} = cf(<<>>, State, empty),
+    {Stream1, State1} = cf(State),
     maybe_consume_s(Stream1, Stream1, 0, State1, Found);
 maybe_consume_s(Part, Stream, Pos, State, Found) ->
     {Found, Part, Stream, Pos, State}.
@@ -313,7 +310,7 @@ parse_Name(<<Char/utf8, Rest/binary>>, Stream, Pos, State) ->
             fatal_error(bad_name, State)
     end;
 parse_Name(<<>>, _Stream, _Pos, State) ->
-    {Stream1, State1} = cf(<<>>, State, empty),
+    {Stream1, State1} = cf(State),
     parse_Name(Stream1, Stream1, 0, State1);
 parse_Name(Bytes = <<30:5, _:3>>, _Stream, _Pos, State) ->
     ?FSTNAMECHARPARTFUN(3, parse_Name);
@@ -332,7 +329,7 @@ parse_Name(_, _, _, State) ->
 
 parse_Name(<<>>, Stream, Pos, Len, State, Acc) ->
     Acc1 = ?ACC(Stream, Pos, Len, Acc),
-    {Stream1, State1} = cf(Stream, State, empty),
+    {Stream1, State1} = cf(State),
     parse_Name(Stream1, Stream1, 0, 0, State1, Acc1);
 ?ONENAMECHAR.
 
@@ -348,10 +345,10 @@ parse_Name(<<>>, Stream, Pos, Len, State, Acc) ->
 %% can be EntityRef | CharRef
 %%----------------------------------------------------------------------
 parse_Reference(<<>>, _Stream, _Pos, State) ->
-    {Stream1, State1} = cf(<<>>, State, empty),
+    {Stream1, State1} = cf(State),
     parse_Reference(Stream1, Stream1, 0, State1);
 parse_Reference(<<$#/utf8>>, _Stream, _Pos, State) ->
-    {Stream1, State1} = cf(<<>>, State, empty),
+    {Stream1, State1} = cf(State),
     parse_Reference_lb(Stream1, Stream1, State1);
 parse_Reference(<<$#/utf8, $x/utf8, Rest/binary>>, Stream, Pos, State) ->
     parse_Reference_hex(Rest, Stream, Pos + 2, 0, State, []);
@@ -361,7 +358,7 @@ parse_Reference(Bytes, Stream, Pos, State) ->
     parse_Reference_name(Bytes, Stream, Pos, State).
 
 parse_Reference_lb(<<>>, _Stream, State) ->
-    {Stream1, State1} = cf(<<>>, State, empty),
+    {Stream1, State1} = cf(State),
     parse_Reference_lb(Stream1, Stream1, State1);
 parse_Reference_lb(<<$x/utf8, Rest/binary>>, Stream, State) ->
     parse_Reference_hex(Rest, Stream, 1, 0, State, []);
@@ -371,7 +368,7 @@ parse_Reference_lb(Bytes, Stream, State) ->
 % hex parse until ';' return char
 parse_Reference_hex(<<>>, Stream, Pos, Len, State, Acc) ->
     Acc1 = ?ACC(Stream, Pos, Len, Acc),
-    {Stream1, State1} = cf(Stream, State, empty),
+    {Stream1, State1} = cf(State),
     parse_Reference_hex(Stream1, Stream1, 0, 0, State1, Acc1);
 parse_Reference_hex(<<$;/utf8, Rest/binary>>, Stream, Pos, Len, State, Acc) ->
     Acc1 = ?ACC(Stream, Pos, Len, Acc),
@@ -392,7 +389,7 @@ parse_Reference_hex(_, _, _, _, State, _) ->
 % decimal parse until ';' return char
 parse_Reference_dec(<<>>, Stream, Pos, Len, State, Acc) ->
     Acc1 = ?ACC(Stream, Pos, Len, Acc),
-    {Stream1, State1} = cf(Stream, State, empty),
+    {Stream1, State1} = cf(State),
     parse_Reference_dec(Stream1, Stream1, 0, 0, State1, Acc1);
 parse_Reference_dec(<<$;/utf8, Rest/binary>>, Stream, Pos, Len, State, Acc) ->
     Acc1 = ?ACC(Stream, Pos, Len, Acc),
@@ -430,18 +427,18 @@ parse_Comment(Bytes, Stream, Pos, State) ->
 
 parse_Comment(<<>>, Stream, Pos, Len, State, Acc) ->
     Acc1 = ?ACC(Stream, Pos, Len, Acc),
-    {Stream1, State1} = cf(<<>>, State, empty),
+    {Stream1, State1} = cf(State),
     parse_Comment(Stream1, Stream1, 0, 0, State1, Acc1);
 parse_Comment(<<$-/utf8, $-/utf8, $>/utf8, Rest/binary>>, Stream, Pos, Len, State, Acc) ->
     Acc1 = ?ACC(Stream, Pos, Len, Acc),
     {Acc1, Rest, Stream, Pos + 3, State};
 parse_Comment(<<$-/utf8, $-/utf8>>, Stream, Pos, Len, State, Acc) ->
     Acc1 = ?ACC(Stream, Pos, Len, Acc),
-    {Stream1, State1} = cf(<<>>, State, empty),
+    {Stream1, State1} = cf(State),
     parse_Comment_dashdash(Stream1, Stream1, State1, Acc1);
 parse_Comment(<<$-/utf8>>, Stream, Pos, Len, State, Acc) ->
     Acc1 = ?ACC(Stream, Pos, Len, Acc),
-    {Stream1, State1} = cf(<<>>, State, empty),
+    {Stream1, State1} = cf(State),
     parse_Comment_dash(Stream1, Stream1, State1, Acc1);
 ?ONECHAR.
 
@@ -453,7 +450,7 @@ parse_Comment_dashdash(_, _, State, _) ->
 parse_Comment_dash(<<$-/utf8, $>/utf8, _Rest/binary>>, Stream, State, Acc) ->
     yaccety_sax:event_comment(Acc, set_state_pos(State, Stream, 2));
 parse_Comment_dash(<<$-/utf8>>, _Stream, State, Acc) ->
-    {Stream1, State1} = cf(<<>>, State, empty),
+    {Stream1, State1} = cf(State),
     parse_Comment_dashdash(Stream1, Stream1, State1, Acc);
 parse_Comment_dash(Bytes, Stream, State, Acc) ->
     Acc1 = ?APPEND(<<$-/utf8>>, Acc),
@@ -483,14 +480,14 @@ parse_PI(Bytes, Stream, Pos, State) ->
 
 parse_PI_data(<<>>, Stream, Pos, Len, State, Acc) ->
     Acc1 = ?ACC(Stream, Pos, Len, Acc),
-    {Stream1, State1} = cf(<<>>, State, empty),
+    {Stream1, State1} = cf(State),
     parse_PI_data(Stream1, Stream1, 0, 0, State1, Acc1);
 parse_PI_data(<<$?/utf8, $>/utf8, Rest/binary>>, Stream, Pos, Len, State, Acc) ->
     Acc1 = ?ACC(Stream, Pos, Len, Acc),
     {Acc1, Rest, Stream, Pos + 2, State};
 parse_PI_data(<<$?/utf8>>, Stream, Pos, Len, State, Acc) ->
     Acc1 = ?ACC(Stream, Pos, Len, Acc),
-    {Stream1, State1} = cf(<<>>, State, empty),
+    {Stream1, State1} = cf(State),
     parse_PI_data_qm(Stream1, Stream1, State1, Acc1);
 ?ONECHAR.
 
@@ -546,7 +543,7 @@ parse_CharData_ws(Bytes = <<$&/utf8, _/binary>>, Stream, Pos, Len, State, Acc) -
     {{true, Text}, Bytes, Stream, Pos + Len, State};
 parse_CharData_ws(<<>>, Stream, Pos, Len, State, Acc) ->
     Acc1 = ?ACC(Stream, Pos, Len, Acc),
-    {Stream1, State1} = cf(<<>>, State, empty),
+    {Stream1, State1} = cf(State),
     parse_CharData_ws(Stream1, Stream1, 0, 0, State1, Acc1);
 parse_CharData_ws(Bytes, Stream, Pos, Len, State, Acc) ->
     parse_CharData(Bytes, Stream, Pos, Len, State, Acc).
@@ -568,22 +565,22 @@ check_chardata(_, _) -> ok.
 parse_CDSect(<<"CDATA["/utf8, Rest/binary>>, Stream, Pos, State) ->
     parse_CData(Rest, Stream, Pos + 6, State);
 parse_CDSect(<<"CDATA"/utf8>>, _Stream, _Pos, State) ->
-    {Stream1, State1} = cf(<<>>, State, empty),
+    {Stream1, State1} = cf(State),
     parse_CDSect_bcdata(Stream1, State1);
 parse_CDSect(<<"CDAT"/utf8>>, _Stream, _Pos, State) ->
-    {Stream1, State1} = cf(<<>>, State, empty),
+    {Stream1, State1} = cf(State),
     parse_CDSect_bcdat(Stream1, State1);
 parse_CDSect(<<"CDA"/utf8>>, _Stream, _Pos, State) ->
-    {Stream1, State1} = cf(<<>>, State, empty),
+    {Stream1, State1} = cf(State),
     parse_CDSect_bcda(Stream1, State1);
 parse_CDSect(<<"CD"/utf8>>, _Stream, _Pos, State) ->
-    {Stream1, State1} = cf(<<>>, State, empty),
+    {Stream1, State1} = cf(State),
     parse_CDSect_bcd(Stream1, State1);
 parse_CDSect(<<"C"/utf8>>, _Stream, _Pos, State) ->
-    {Stream1, State1} = cf(<<>>, State, empty),
+    {Stream1, State1} = cf(State),
     parse_CDSect_bc(Stream1, State1);
 parse_CDSect(<<>>, _Stream, _Pos, State) ->
-    {Stream1, State1} = cf(<<>>, State, empty),
+    {Stream1, State1} = cf(State),
     parse_CDSect(Stream1, Stream1, 0, State1);
 parse_CDSect(_, _, _, State) ->
     fatal_error(bad_cdata, State).
@@ -591,16 +588,16 @@ parse_CDSect(_, _, _, State) ->
 parse_CDSect_bc(<<"DATA["/utf8, Rest/binary>> = Stream, State) ->
     parse_CData(Rest, Stream, 5, State);
 parse_CDSect_bc(<<"DATA"/utf8>>, State) ->
-    {Stream1, State1} = cf(<<>>, State, empty),
+    {Stream1, State1} = cf(State),
     parse_CDSect_bcdata(Stream1, State1);
 parse_CDSect_bc(<<"DAT"/utf8>>, State) ->
-    {Stream1, State1} = cf(<<>>, State, empty),
+    {Stream1, State1} = cf(State),
     parse_CDSect_bcdat(Stream1, State1);
 parse_CDSect_bc(<<"DA"/utf8>>, State) ->
-    {Stream1, State1} = cf(<<>>, State, empty),
+    {Stream1, State1} = cf(State),
     parse_CDSect_bcda(Stream1, State1);
 parse_CDSect_bc(<<"D"/utf8>>, State) ->
-    {Stream1, State1} = cf(<<>>, State, empty),
+    {Stream1, State1} = cf(State),
     parse_CDSect_bcd(Stream1, State1);
 parse_CDSect_bc(_, State) ->
     fatal_error(bad_cdata, State).
@@ -608,13 +605,13 @@ parse_CDSect_bc(_, State) ->
 parse_CDSect_bcd(<<"ATA["/utf8, Rest/binary>> = Stream, State) ->
     parse_CData(Rest, Stream, 4, State);
 parse_CDSect_bcd(<<"ATA"/utf8>>, State) ->
-    {Stream1, State1} = cf(<<>>, State, empty),
+    {Stream1, State1} = cf(State),
     parse_CDSect_bcdata(Stream1, State1);
 parse_CDSect_bcd(<<"AT"/utf8>>, State) ->
-    {Stream1, State1} = cf(<<>>, State, empty),
+    {Stream1, State1} = cf(State),
     parse_CDSect_bcdat(Stream1, State1);
 parse_CDSect_bcd(<<"A"/utf8>>, State) ->
-    {Stream1, State1} = cf(<<>>, State, empty),
+    {Stream1, State1} = cf(State),
     parse_CDSect_bcda(Stream1, State1);
 parse_CDSect_bcd(_, State) ->
     fatal_error(bad_cdata, State).
@@ -622,10 +619,10 @@ parse_CDSect_bcd(_, State) ->
 parse_CDSect_bcda(<<"TA["/utf8, Rest/binary>> = Stream, State) ->
     parse_CData(Rest, Stream, 3, State);
 parse_CDSect_bcda(<<"TA"/utf8>>, State) ->
-    {Stream1, State1} = cf(<<>>, State, empty),
+    {Stream1, State1} = cf(State),
     parse_CDSect_bcdata(Stream1, State1);
 parse_CDSect_bcda(<<"T"/utf8>>, State) ->
-    {Stream1, State1} = cf(<<>>, State, empty),
+    {Stream1, State1} = cf(State),
     parse_CDSect_bcdat(Stream1, State1);
 parse_CDSect_bcda(_, State) ->
     fatal_error(bad_cdata, State).
@@ -633,7 +630,7 @@ parse_CDSect_bcda(_, State) ->
 parse_CDSect_bcdat(<<"A["/utf8, Rest/binary>> = Stream, State) ->
     parse_CData(Rest, Stream, 2, State);
 parse_CDSect_bcdat(<<"A"/utf8>>, State) ->
-    {Stream1, State1} = cf(<<>>, State, empty),
+    {Stream1, State1} = cf(State),
     parse_CDSect_bcdata(Stream1, State1);
 parse_CDSect_bcdat(_, State) ->
     fatal_error(bad_cdata, State).
@@ -652,18 +649,18 @@ parse_CData(<<"]]>"/utf8, Rest/binary>>, Stream, Pos, Len, State, Acc) ->
     {Text, Rest, Stream, Pos + Len + 3, State};
 parse_CData(<<"]]"/utf8>>, Stream, Pos, Len, State, Acc) ->
     Acc1 = ?ACC(Stream, Pos, Len, Acc),
-    {Stream1, State1} = cf(<<>>, State, empty),
+    {Stream1, State1} = cf(State),
     parse_CData_bb(Stream1, State1, Acc1);
 parse_CData(<<"]"/utf8>>, Stream, Pos, Len, State, Acc) ->
     Acc1 = ?ACC(Stream, Pos, Len, Acc),
-    {Stream1, State1} = cf(<<>>, State, empty),
+    {Stream1, State1} = cf(State),
     parse_CData_b(Stream1, State1, Acc1);
 ?ONECHAR.
 
 parse_CData_b(<<"]>"/utf8, Rest/binary>> = Stream, State, Acc) ->
     {Acc, Rest, Stream, 2, State};
 parse_CData_b(<<"]"/utf8>>, State, Acc) ->
-    {Stream1, State1} = cf(<<>>, State, empty),
+    {Stream1, State1} = cf(State),
     parse_CData_bb(Stream1, State1, Acc);
 parse_CData_b(Stream, State, Acc) ->
     Acc1 = ?APPEND(<<"]"/utf8>>, Acc),
@@ -691,21 +688,21 @@ parse_EncodingDecl(Bytes, Stream, Pos, State) ->
 parse_EncodingDeclS(<<"encoding"/utf8, Rest/binary>>, Stream, Pos, State) ->
     parse_EncodingDecl_encoding(Rest, Stream, Pos + 8, State);
 parse_EncodingDeclS(<<"encodin"/utf8>>, _Stream, _Pos, State) ->
-    parse_EncodingDecl_encodin(cf(<<>>, State, empty));
+    parse_EncodingDecl_encodin(cf(State));
 parse_EncodingDeclS(<<"encodi"/utf8>>, _Stream, _Pos, State) ->
-    parse_EncodingDecl_encodi(cf(<<>>, State, empty));
+    parse_EncodingDecl_encodi(cf(State));
 parse_EncodingDeclS(<<"encod"/utf8>>, _Stream, _Pos, State) ->
-    parse_EncodingDecl_encod(cf(<<>>, State, empty));
+    parse_EncodingDecl_encod(cf(State));
 parse_EncodingDeclS(<<"enco"/utf8>>, _Stream, _Pos, State) ->
-    parse_EncodingDecl_enco(cf(<<>>, State, empty));
+    parse_EncodingDecl_enco(cf(State));
 parse_EncodingDeclS(<<"enc"/utf8>>, _Stream, _Pos, State) ->
-    parse_EncodingDecl_enc(cf(<<>>, State, empty));
+    parse_EncodingDecl_enc(cf(State));
 parse_EncodingDeclS(<<"en"/utf8>>, _Stream, _Pos, State) ->
-    parse_EncodingDecl_en(cf(<<>>, State, empty));
+    parse_EncodingDecl_en(cf(State));
 parse_EncodingDeclS(<<"e"/utf8>>, _Stream, _Pos, State) ->
-    parse_EncodingDecl_e(cf(<<>>, State, empty));
+    parse_EncodingDecl_e(cf(State));
 parse_EncodingDeclS(<<>>, _Stream, _Pos, State) ->
-    {Stream1, State1} = cf(<<>>, State, empty),
+    {Stream1, State1} = cf(State),
     parse_EncodingDeclS(Stream1, Stream1, 0, State1);
 parse_EncodingDeclS(Bytes, Stream, Pos, State) ->
     % no encoding
@@ -714,72 +711,72 @@ parse_EncodingDeclS(Bytes, Stream, Pos, State) ->
 parse_EncodingDecl_e({<<"ncoding"/utf8, Rest/binary>> = Stream, State}) ->
     parse_EncodingDecl_encoding(Rest, Stream, 7, State);
 parse_EncodingDecl_e({<<"ncodin"/utf8>>, State}) ->
-    parse_EncodingDecl_encodin(cf(<<>>, State, empty));
+    parse_EncodingDecl_encodin(cf(State));
 parse_EncodingDecl_e({<<"ncodi"/utf8>>, State}) ->
-    parse_EncodingDecl_encodi(cf(<<>>, State, empty));
+    parse_EncodingDecl_encodi(cf(State));
 parse_EncodingDecl_e({<<"ncod"/utf8>>, State}) ->
-    parse_EncodingDecl_encod(cf(<<>>, State, empty));
+    parse_EncodingDecl_encod(cf(State));
 parse_EncodingDecl_e({<<"nco"/utf8>>, State}) ->
-    parse_EncodingDecl_enco(cf(<<>>, State, empty));
+    parse_EncodingDecl_enco(cf(State));
 parse_EncodingDecl_e({<<"nc"/utf8>>, State}) ->
-    parse_EncodingDecl_enc(cf(<<>>, State, empty));
+    parse_EncodingDecl_enc(cf(State));
 parse_EncodingDecl_e({<<"n"/utf8>>, State}) ->
-    parse_EncodingDecl_en(cf(<<>>, State, empty));
+    parse_EncodingDecl_en(cf(State));
 parse_EncodingDecl_e({_, State}) ->
     fatal_error(bad_encoding, State).
 
 parse_EncodingDecl_en({<<"coding"/utf8, Rest/binary>> = Stream, State}) ->
     parse_EncodingDecl_encoding(Rest, Stream, 6, State);
 parse_EncodingDecl_en({<<"codin"/utf8>>, State}) ->
-    parse_EncodingDecl_encodin(cf(<<>>, State, empty));
+    parse_EncodingDecl_encodin(cf(State));
 parse_EncodingDecl_en({<<"codi"/utf8>>, State}) ->
-    parse_EncodingDecl_encodi(cf(<<>>, State, empty));
+    parse_EncodingDecl_encodi(cf(State));
 parse_EncodingDecl_en({<<"cod"/utf8>>, State}) ->
-    parse_EncodingDecl_encod(cf(<<>>, State, empty));
+    parse_EncodingDecl_encod(cf(State));
 parse_EncodingDecl_en({<<"co"/utf8>>, State}) ->
-    parse_EncodingDecl_enco(cf(<<>>, State, empty));
+    parse_EncodingDecl_enco(cf(State));
 parse_EncodingDecl_en({<<"c"/utf8>>, State}) ->
-    parse_EncodingDecl_enc(cf(<<>>, State, empty));
+    parse_EncodingDecl_enc(cf(State));
 parse_EncodingDecl_en({_, State}) ->
     fatal_error(bad_encoding, State).
 
 parse_EncodingDecl_enc({<<"oding"/utf8, Rest/binary>> = Stream, State}) ->
     parse_EncodingDecl_encoding(Rest, Stream, 5, State);
 parse_EncodingDecl_enc({<<"odin"/utf8>>, State}) ->
-    parse_EncodingDecl_encodin(cf(<<>>, State, empty));
+    parse_EncodingDecl_encodin(cf(State));
 parse_EncodingDecl_enc({<<"odi"/utf8>>, State}) ->
-    parse_EncodingDecl_encodi(cf(<<>>, State, empty));
+    parse_EncodingDecl_encodi(cf(State));
 parse_EncodingDecl_enc({<<"od"/utf8>>, State}) ->
-    parse_EncodingDecl_encod(cf(<<>>, State, empty));
+    parse_EncodingDecl_encod(cf(State));
 parse_EncodingDecl_enc({<<"o"/utf8>>, State}) ->
-    parse_EncodingDecl_enco(cf(<<>>, State, empty));
+    parse_EncodingDecl_enco(cf(State));
 parse_EncodingDecl_enc({_, State}) ->
     fatal_error(bad_encoding, State).
 
 parse_EncodingDecl_enco({<<"ding"/utf8, Rest/binary>> = Stream, State}) ->
     parse_EncodingDecl_encoding(Rest, Stream, 4, State);
 parse_EncodingDecl_enco({<<"din"/utf8>>, State}) ->
-    parse_EncodingDecl_encodin(cf(<<>>, State, empty));
+    parse_EncodingDecl_encodin(cf(State));
 parse_EncodingDecl_enco({<<"di"/utf8>>, State}) ->
-    parse_EncodingDecl_encodi(cf(<<>>, State, empty));
+    parse_EncodingDecl_encodi(cf(State));
 parse_EncodingDecl_enco({<<"d"/utf8>>, State}) ->
-    parse_EncodingDecl_encod(cf(<<>>, State, empty));
+    parse_EncodingDecl_encod(cf(State));
 parse_EncodingDecl_enco({_, State}) ->
     fatal_error(bad_encoding, State).
 
 parse_EncodingDecl_encod({<<"ing"/utf8, Rest/binary>> = Stream, State}) ->
     parse_EncodingDecl_encoding(Rest, Stream, 3, State);
 parse_EncodingDecl_encod({<<"in"/utf8>>, State}) ->
-    parse_EncodingDecl_encodin(cf(<<>>, State, empty));
+    parse_EncodingDecl_encodin(cf(State));
 parse_EncodingDecl_encod({<<"i"/utf8>>, State}) ->
-    parse_EncodingDecl_encodi(cf(<<>>, State, empty));
+    parse_EncodingDecl_encodi(cf(State));
 parse_EncodingDecl_encod({_, State}) ->
     fatal_error(bad_encoding, State).
 
 parse_EncodingDecl_encodi({<<"ng"/utf8, Rest/binary>> = Stream, State}) ->
     parse_EncodingDecl_encoding(Rest, Stream, 2, State);
 parse_EncodingDecl_encodi({<<"n"/utf8>>, State}) ->
-    parse_EncodingDecl_encodin(cf(<<>>, State, empty));
+    parse_EncodingDecl_encodin(cf(State));
 parse_EncodingDecl_encodi({_, State}) ->
     fatal_error(bad_encoding, State).
 
@@ -803,7 +800,7 @@ parse_EncodingDecl_EncName_sq(Bytes, Stream, Pos, State) ->
     case parse_EncodingDecl_EncName_name(Bytes, Stream, Pos, State) of
         {Name, <<$'/utf8, Rest/binary>>, Stream1, Pos1, State1} ->
             {{Name, true}, Rest, Stream1, Pos1 + 1, State1};
-        {_, _, _, State1} ->
+        {_, _, _, _, State1} ->
             fatal_error(bad_encoding, State1)
     end.
 
@@ -811,7 +808,7 @@ parse_EncodingDecl_EncName_dq(Bytes, Stream, Pos, State) ->
     case parse_EncodingDecl_EncName_name(Bytes, Stream, Pos, State) of
         {Name, <<$"/utf8, Rest/binary>>, Stream1, Pos1, State1} ->
             {{Name, true}, Rest, Stream1, Pos1 + 1, State1};
-        {_, _, _, State1} ->
+        {_, _, _, _, State1} ->
             fatal_error(bad_encoding, State1)
     end.
 
@@ -820,7 +817,7 @@ parse_EncodingDecl_EncName_dq(Bytes, Stream, Pos, State) ->
 %% /* Encoding name contains only Latin characters */
 %%----------------------------------------------------------------------
 parse_EncodingDecl_EncName_name(<<>>, _Stream, _Pos, State) ->
-    {Stream1, State1} = cf(<<>>, State, empty),
+    {Stream1, State1} = cf(State),
     parse_EncodingDecl_EncName_name(Stream1, Stream1, 0, State1);
 parse_EncodingDecl_EncName_name(<<Char/utf8, Rest/binary>>, Stream, Pos, State) when
     Char >= $A andalso Char =< $Z; Char >= $a andalso Char =< $z
@@ -831,7 +828,7 @@ parse_EncodingDecl_EncName_name(_, _Stream, _Pos, State) ->
 
 parse_EncodingDecl_EncName_name_1(<<>>, Stream, Pos, Len, State, Acc) ->
     Acc1 = ?ACC(Stream, Pos, Len, Acc),
-    {Stream1, State1} = cf(<<>>, State, empty),
+    {Stream1, State1} = cf(State),
     parse_EncodingDecl_EncName_name_1(Stream1, Stream1, 0, 0, State1, Acc1);
 parse_EncodingDecl_EncName_name_1(<<Char/utf8, Rest/binary>>, Stream, Pos, Len, State, Acc) when
     Char >= $A andalso Char =< $Z;
@@ -865,7 +862,7 @@ parse_Eq_1(_, _Stream, _Pos, State) ->
 parse_VersionNum_sq(<<$1/utf8, $./utf8, Rest/binary>>, Stream, Pos, State) ->
     parse_VersionNum_digit_sq(Rest, Stream, Pos + 2, 0, State, []);
 parse_VersionNum_sq(<<$1/utf8>>, _Stream, _Pos, State) ->
-    {Stream1, State1} = cf(<<>>, State, empty),
+    {Stream1, State1} = cf(State),
     parse_VersionNum_1_sq(Stream1, State1);
 parse_VersionNum_sq(_, _, _, State) ->
     fatal_error(bad_version_num, State).
@@ -877,7 +874,7 @@ parse_VersionNum_1_sq(_, State) ->
 
 parse_VersionNum_digit_sq(<<>>, Stream, Pos, Len, State, Acc) ->
     Acc1 = ?ACC(Stream, Pos, Len, Acc),
-    {Stream1, State1} = cf(<<>>, State, empty),
+    {Stream1, State1} = cf(State),
     parse_VersionNum_digit_sq(Stream1, Stream1, 0, 0, State1, Acc1);
 parse_VersionNum_digit_sq(<<Char/utf8, Rest/binary>>, Stream, Pos, Len, State, Acc) when
     Char >= $0 andalso Char =< $9
@@ -892,7 +889,7 @@ parse_VersionNum_digit_sq(_, _, _, _, State, _) ->
 parse_VersionNum_dq(<<$1/utf8, $./utf8, Rest/binary>>, Stream, Pos, State) ->
     parse_VersionNum_digit_dq(Rest, Stream, Pos + 2, 0, State, []);
 parse_VersionNum_dq(<<$1/utf8>>, _Stream, _Pos, State) ->
-    {Stream1, State1} = cf(<<>>, State, empty),
+    {Stream1, State1} = cf(State),
     parse_VersionNum_1_dq(Stream1, State1);
 parse_VersionNum_dq(_, _, _, State) ->
     fatal_error(bad_version_num, State).
@@ -904,7 +901,7 @@ parse_VersionNum_1_dq(_, State) ->
 
 parse_VersionNum_digit_dq(<<>>, Stream, Pos, Len, State, Acc) ->
     Acc1 = ?ACC(Stream, Pos, Len, Acc),
-    {Stream1, State1} = cf(<<>>, State, empty),
+    {Stream1, State1} = cf(State),
     parse_VersionNum_digit_dq(Stream1, Stream1, 0, 0, State1, Acc1);
 parse_VersionNum_digit_dq(<<Char/utf8, Rest/binary>>, Stream, Pos, Len, State, Acc) when
     Char >= $0 andalso Char =< $9
@@ -948,19 +945,19 @@ parse_VersionInfo_version(Bytes, Stream, Pos, State) ->
 parse_VersionInfoS(<<"version"/utf8, Rest/binary>>, Stream, Pos, State) ->
     parse_VersionInfo_version(Rest, Stream, Pos + 7, State);
 parse_VersionInfoS(<<"versio"/utf8>>, _Stream, _Pos, State) ->
-    parse_VersionInfo_versio(cf(<<>>, State, empty));
+    parse_VersionInfo_versio(cf(State));
 parse_VersionInfoS(<<"versi"/utf8>>, _Stream, _Pos, State) ->
-    parse_VersionInfo_versi(cf(<<>>, State, empty));
+    parse_VersionInfo_versi(cf(State));
 parse_VersionInfoS(<<"vers"/utf8>>, _Stream, _Pos, State) ->
-    parse_VersionInfo_vers(cf(<<>>, State, empty));
+    parse_VersionInfo_vers(cf(State));
 parse_VersionInfoS(<<"ver"/utf8>>, _Stream, _Pos, State) ->
-    parse_VersionInfo_ver(cf(<<>>, State, empty));
+    parse_VersionInfo_ver(cf(State));
 parse_VersionInfoS(<<"ve"/utf8>>, _Stream, _Pos, State) ->
-    parse_VersionInfo_ve(cf(<<>>, State, empty));
+    parse_VersionInfo_ve(cf(State));
 parse_VersionInfoS(<<"v"/utf8>>, _Stream, _Pos, State) ->
-    parse_VersionInfo_v(cf(<<>>, State, empty));
+    parse_VersionInfo_v(cf(State));
 parse_VersionInfoS(<<>>, _Stream, _Pos, State) ->
-    {Stream1, State1} = cf(<<>>, State, empty),
+    {Stream1, State1} = cf(State),
     parse_VersionInfoS(Stream1, Stream1, 0, State1);
 parse_VersionInfoS(_, _, _, State) ->
     fatal_error(bad_xml_decl, State).
@@ -968,55 +965,55 @@ parse_VersionInfoS(_, _, _, State) ->
 parse_VersionInfo_v({<<"ersion"/utf8, Rest/binary>> = Stream, State}) ->
     parse_VersionInfo_version(Rest, Stream, 6, State);
 parse_VersionInfo_v({<<"ersio"/utf8>>, State}) ->
-    parse_VersionInfo_versio(cf(<<>>, State, empty));
+    parse_VersionInfo_versio(cf(State));
 parse_VersionInfo_v({<<"ersi"/utf8>>, State}) ->
-    parse_VersionInfo_versi(cf(<<>>, State, empty));
+    parse_VersionInfo_versi(cf(State));
 parse_VersionInfo_v({<<"ers"/utf8>>, State}) ->
-    parse_VersionInfo_vers(cf(<<>>, State, empty));
+    parse_VersionInfo_vers(cf(State));
 parse_VersionInfo_v({<<"er"/utf8>>, State}) ->
-    parse_VersionInfo_ver(cf(<<>>, State, empty));
+    parse_VersionInfo_ver(cf(State));
 parse_VersionInfo_v({<<"e"/utf8>>, State}) ->
-    parse_VersionInfo_ve(cf(<<>>, State, empty));
+    parse_VersionInfo_ve(cf(State));
 parse_VersionInfo_v({_, State}) ->
     fatal_error(bad_version_num, State).
 
 parse_VersionInfo_ve({<<"rsion"/utf8, Rest/binary>> = Stream, State}) ->
     parse_VersionInfo_version(Rest, Stream, 5, State);
 parse_VersionInfo_ve({<<"rsio"/utf8>>, State}) ->
-    parse_VersionInfo_versio(cf(<<>>, State, empty));
+    parse_VersionInfo_versio(cf(State));
 parse_VersionInfo_ve({<<"rsi"/utf8>>, State}) ->
-    parse_VersionInfo_versi(cf(<<>>, State, empty));
+    parse_VersionInfo_versi(cf(State));
 parse_VersionInfo_ve({<<"rs"/utf8>>, State}) ->
-    parse_VersionInfo_vers(cf(<<>>, State, empty));
+    parse_VersionInfo_vers(cf(State));
 parse_VersionInfo_ve({<<"r"/utf8>>, State}) ->
-    parse_VersionInfo_ver(cf(<<>>, State, empty));
+    parse_VersionInfo_ver(cf(State));
 parse_VersionInfo_ve({_, State}) ->
     fatal_error(bad_version_num, State).
 
 parse_VersionInfo_ver({<<"sion"/utf8, Rest/binary>> = Stream, State}) ->
     parse_VersionInfo_version(Rest, Stream, 4, State);
 parse_VersionInfo_ver({<<"sio"/utf8>>, State}) ->
-    parse_VersionInfo_versio(cf(<<>>, State, empty));
+    parse_VersionInfo_versio(cf(State));
 parse_VersionInfo_ver({<<"si"/utf8>>, State}) ->
-    parse_VersionInfo_versi(cf(<<>>, State, empty));
+    parse_VersionInfo_versi(cf(State));
 parse_VersionInfo_ver({<<"s"/utf8>>, State}) ->
-    parse_VersionInfo_vers(cf(<<>>, State, empty));
+    parse_VersionInfo_vers(cf(State));
 parse_VersionInfo_ver({_, State}) ->
     fatal_error(bad_version_num, State).
 
 parse_VersionInfo_vers({<<"ion"/utf8, Rest/binary>> = Stream, State}) ->
     parse_VersionInfo_version(Rest, Stream, 3, State);
 parse_VersionInfo_vers({<<"io"/utf8>>, State}) ->
-    parse_VersionInfo_versio(cf(<<>>, State, empty));
+    parse_VersionInfo_versio(cf(State));
 parse_VersionInfo_vers({<<"i"/utf8>>, State}) ->
-    parse_VersionInfo_versi(cf(<<>>, State, empty));
+    parse_VersionInfo_versi(cf(State));
 parse_VersionInfo_vers({_, State}) ->
     fatal_error(bad_version_num, State).
 
 parse_VersionInfo_versi({<<"on"/utf8, Rest/binary>> = Stream, State}) ->
     parse_VersionInfo_version(Rest, Stream, 2, State);
 parse_VersionInfo_versi({<<"o"/utf8>>, State}) ->
-    parse_VersionInfo_versio(cf(<<>>, State, empty));
+    parse_VersionInfo_versio(cf(State));
 parse_VersionInfo_versi({_, State}) ->
     fatal_error(bad_version_num, State).
 
@@ -1038,7 +1035,7 @@ parse_SDDecl_standalone_yesno(<<$'/utf8, Rest/binary>>, Stream, Pos, State) ->
 parse_SDDecl_standalone_yesno(<<$"/utf8, Rest/binary>>, Stream, Pos, State) ->
     parse_SDDecl_standalone_yesno_dq(Rest, Stream, Pos + 1, State);
 parse_SDDecl_standalone_yesno(<<>>, _Stream, _Pos, State) ->
-    {Stream1, State1} = cf(<<>>, State, empty),
+    {Stream1, State1} = cf(State),
     parse_SDDecl_standalone_yesno(Stream1, Stream1, 0, State1);
 parse_SDDecl_standalone_yesno(_, _, _, State) ->
     fatal_error(bad_standalone, State).
@@ -1046,31 +1043,31 @@ parse_SDDecl_standalone_yesno(_, _, _, State) ->
 parse_SDDecl_standalone_yesno_sq(<<"no'"/utf8, Rest/binary>>, Stream, Pos, State) ->
     {{false, true}, Rest, Stream, Pos + 3, State};
 parse_SDDecl_standalone_yesno_sq(<<"no"/utf8>>, _Stream, _Pos, State) ->
-    parse_SDDecl_standalone_yesno_sq_no(cf(<<>>, State, empty));
+    parse_SDDecl_standalone_yesno_sq_no(cf(State));
 parse_SDDecl_standalone_yesno_sq(<<"n"/utf8>>, _Stream, _Pos, State) ->
-    parse_SDDecl_standalone_yesno_sq_n(cf(<<>>, State, empty));
+    parse_SDDecl_standalone_yesno_sq_n(cf(State));
 parse_SDDecl_standalone_yesno_sq(<<"yes'"/utf8, Rest/binary>>, Stream, Pos, State) ->
     {{true, true}, Rest, Stream, Pos + 4, State};
 parse_SDDecl_standalone_yesno_sq(<<"yes"/utf8>>, _Stream, _Pos, State) ->
-    parse_SDDecl_standalone_yesno_sq_yes(cf(<<>>, State, empty));
+    parse_SDDecl_standalone_yesno_sq_yes(cf(State));
 parse_SDDecl_standalone_yesno_sq(<<"ye"/utf8>>, _Stream, _Pos, State) ->
-    parse_SDDecl_standalone_yesno_sq_ye(cf(<<>>, State, empty));
+    parse_SDDecl_standalone_yesno_sq_ye(cf(State));
 parse_SDDecl_standalone_yesno_sq(<<"y"/utf8>>, _Stream, _Pos, State) ->
-    parse_SDDecl_standalone_yesno_sq_y(cf(<<>>, State, empty)).
+    parse_SDDecl_standalone_yesno_sq_y(cf(State)).
 
 parse_SDDecl_standalone_yesno_sq_y({<<"es'"/utf8, Rest/binary>> = Stream, State}) ->
     {{true, true}, Rest, Stream, 3, State};
 parse_SDDecl_standalone_yesno_sq_y({<<"es"/utf8>>, State}) ->
-    parse_SDDecl_standalone_yesno_sq_yes(cf(<<>>, State, empty));
+    parse_SDDecl_standalone_yesno_sq_yes(cf(State));
 parse_SDDecl_standalone_yesno_sq_y({<<"e"/utf8>>, State}) ->
-    parse_SDDecl_standalone_yesno_sq_ye(cf(<<>>, State, empty));
+    parse_SDDecl_standalone_yesno_sq_ye(cf(State));
 parse_SDDecl_standalone_yesno_sq_y({_, State}) ->
     fatal_error(bad_standalone, State).
 
 parse_SDDecl_standalone_yesno_sq_ye({<<"s'"/utf8, Rest/binary>> = Stream, State}) ->
     {{true, true}, Rest, Stream, 2, State};
 parse_SDDecl_standalone_yesno_sq_ye({<<"s"/utf8>>, State}) ->
-    parse_SDDecl_standalone_yesno_sq_yes(cf(<<>>, State, empty));
+    parse_SDDecl_standalone_yesno_sq_yes(cf(State));
 parse_SDDecl_standalone_yesno_sq_ye({_, State}) ->
     fatal_error(bad_standalone, State).
 
@@ -1082,22 +1079,22 @@ parse_SDDecl_standalone_yesno_sq_yes({_, State}) ->
 parse_SDDecl_standalone_yesno_dq(<<"no\""/utf8, Rest/binary>>, Stream, Pos, State) ->
     {{false, true}, Rest, Stream, Pos + 3, State};
 parse_SDDecl_standalone_yesno_dq(<<"no"/utf8>>, _Stream, _Pos, State) ->
-    parse_SDDecl_standalone_yesno_dq_no(cf(<<>>, State, empty));
+    parse_SDDecl_standalone_yesno_dq_no(cf(State));
 parse_SDDecl_standalone_yesno_dq(<<"n"/utf8>>, _Stream, _Pos, State) ->
-    parse_SDDecl_standalone_yesno_dq_n(cf(<<>>, State, empty));
+    parse_SDDecl_standalone_yesno_dq_n(cf(State));
 parse_SDDecl_standalone_yesno_dq(<<"yes\""/utf8, Rest/binary>>, Stream, Pos, State) ->
     {{true, true}, Rest, Stream, Pos + 4, State};
 parse_SDDecl_standalone_yesno_dq(<<"yes"/utf8>>, _Stream, _Pos, State) ->
-    parse_SDDecl_standalone_yesno_dq_yes(cf(<<>>, State, empty));
+    parse_SDDecl_standalone_yesno_dq_yes(cf(State));
 parse_SDDecl_standalone_yesno_dq(<<"ye"/utf8>>, _Stream, _Pos, State) ->
-    parse_SDDecl_standalone_yesno_dq_ye(cf(<<>>, State, empty));
+    parse_SDDecl_standalone_yesno_dq_ye(cf(State));
 parse_SDDecl_standalone_yesno_dq(<<"y"/utf8>>, _Stream, _Pos, State) ->
-    parse_SDDecl_standalone_yesno_dq_y(cf(<<>>, State, empty)).
+    parse_SDDecl_standalone_yesno_dq_y(cf(State)).
 
 parse_SDDecl_standalone_yesno_sq_n({<<"o'"/utf8, Rest/binary>> = Stream, State}) ->
     {{false, true}, Rest, Stream, 2, State};
 parse_SDDecl_standalone_yesno_sq_n({<<"o"/utf8>>, State}) ->
-    parse_SDDecl_standalone_yesno_sq_no(cf(<<>>, State, empty));
+    parse_SDDecl_standalone_yesno_sq_no(cf(State));
 parse_SDDecl_standalone_yesno_sq_n({_, State}) ->
     fatal_error(bad_standalone, State).
 
@@ -1109,7 +1106,7 @@ parse_SDDecl_standalone_yesno_sq_no({_, State}) ->
 parse_SDDecl_standalone_yesno_dq_n({<<"o\""/utf8, Rest/binary>> = Stream, State}) ->
     {{false, true}, Rest, Stream, 2, State};
 parse_SDDecl_standalone_yesno_dq_n({<<"o"/utf8>>, State}) ->
-    parse_SDDecl_standalone_yesno_dq_no(cf(<<>>, State, empty));
+    parse_SDDecl_standalone_yesno_dq_no(cf(State));
 parse_SDDecl_standalone_yesno_dq_n({_, State}) ->
     fatal_error(bad_standalone, State).
 
@@ -1121,16 +1118,16 @@ parse_SDDecl_standalone_yesno_dq_no({_, State}) ->
 parse_SDDecl_standalone_yesno_dq_y({<<"es\""/utf8, Rest/binary>> = Stream, State}) ->
     {{true, true}, Rest, Stream, 3, State};
 parse_SDDecl_standalone_yesno_dq_y({<<"es"/utf8>>, State}) ->
-    parse_SDDecl_standalone_yesno_dq_yes(cf(<<>>, State, empty));
+    parse_SDDecl_standalone_yesno_dq_yes(cf(State));
 parse_SDDecl_standalone_yesno_dq_y({<<"e"/utf8>>, State}) ->
-    parse_SDDecl_standalone_yesno_dq_ye(cf(<<>>, State, empty));
+    parse_SDDecl_standalone_yesno_dq_ye(cf(State));
 parse_SDDecl_standalone_yesno_dq_y({_, State}) ->
     fatal_error(bad_standalone, State).
 
 parse_SDDecl_standalone_yesno_dq_ye({<<"s\""/utf8, Rest/binary>> = Stream, State}) ->
     {{true, true}, Rest, Stream, 2, State};
 parse_SDDecl_standalone_yesno_dq_ye({<<"s"/utf8>>, State}) ->
-    parse_SDDecl_standalone_yesno_dq_yes(cf(<<>>, State, empty));
+    parse_SDDecl_standalone_yesno_dq_yes(cf(State));
 parse_SDDecl_standalone_yesno_dq_ye({_, State}) ->
     fatal_error(bad_standalone, State).
 
@@ -1142,25 +1139,25 @@ parse_SDDecl_standalone_yesno_dq_yes({_, State}) ->
 parse_SDDecl(<<"standalone"/utf8, Rest/binary>>, Stream, Pos, State) ->
     parse_SDDecl_standalone(Rest, Stream, Pos + 10, State);
 parse_SDDecl(<<"standalon"/utf8>>, _Stream, _Pos, State) ->
-    parse_SDDecl_standalon(cf(<<>>, State, empty));
+    parse_SDDecl_standalon(cf(State));
 parse_SDDecl(<<"standalo"/utf8>>, _Stream, _Pos, State) ->
-    parse_SDDecl_standalo(cf(<<>>, State, empty));
+    parse_SDDecl_standalo(cf(State));
 parse_SDDecl(<<"standal"/utf8>>, _Stream, _Pos, State) ->
-    parse_SDDecl_standal(cf(<<>>, State, empty));
+    parse_SDDecl_standal(cf(State));
 parse_SDDecl(<<"standa"/utf8>>, _Stream, _Pos, State) ->
-    parse_SDDecl_standa(cf(<<>>, State, empty));
+    parse_SDDecl_standa(cf(State));
 parse_SDDecl(<<"stand"/utf8>>, _Stream, _Pos, State) ->
-    parse_SDDecl_stand(cf(<<>>, State, empty));
+    parse_SDDecl_stand(cf(State));
 parse_SDDecl(<<"stan"/utf8>>, _Stream, _Pos, State) ->
-    parse_SDDecl_stan(cf(<<>>, State, empty));
+    parse_SDDecl_stan(cf(State));
 parse_SDDecl(<<"sta"/utf8>>, _Stream, _Pos, State) ->
-    parse_SDDecl_sta(cf(<<>>, State, empty));
+    parse_SDDecl_sta(cf(State));
 parse_SDDecl(<<"st"/utf8>>, _Stream, _Pos, State) ->
-    parse_SDDecl_st(cf(<<>>, State, empty));
+    parse_SDDecl_st(cf(State));
 parse_SDDecl(<<"s"/utf8>>, _Stream, _Pos, State) ->
-    parse_SDDecl_s(cf(<<>>, State, empty));
+    parse_SDDecl_s(cf(State));
 parse_SDDecl(<<>>, _Stream, _Pos, State) ->
-    {Stream1, State1} = cf(<<>>, State, empty),
+    {Stream1, State1} = cf(State),
     parse_SDDecl(Stream1, Stream1, 0, State1);
 parse_SDDecl(Bytes, Stream, Pos, State) ->
     {{false, false}, Bytes, Stream, Pos, State}.
@@ -1168,112 +1165,112 @@ parse_SDDecl(Bytes, Stream, Pos, State) ->
 parse_SDDecl_s({<<"tandalone"/utf8, Rest/binary>> = Stream, State}) ->
     parse_SDDecl_standalone(Rest, Stream, 9, State);
 parse_SDDecl_s({<<"tandalon"/utf8>>, State}) ->
-    parse_SDDecl_standalon(cf(<<>>, State, empty));
+    parse_SDDecl_standalon(cf(State));
 parse_SDDecl_s({<<"tandalo"/utf8>>, State}) ->
-    parse_SDDecl_standalo(cf(<<>>, State, empty));
+    parse_SDDecl_standalo(cf(State));
 parse_SDDecl_s({<<"tandal"/utf8>>, State}) ->
-    parse_SDDecl_standal(cf(<<>>, State, empty));
+    parse_SDDecl_standal(cf(State));
 parse_SDDecl_s({<<"tanda"/utf8>>, State}) ->
-    parse_SDDecl_standa(cf(<<>>, State, empty));
+    parse_SDDecl_standa(cf(State));
 parse_SDDecl_s({<<"tand"/utf8>>, State}) ->
-    parse_SDDecl_stand(cf(<<>>, State, empty));
+    parse_SDDecl_stand(cf(State));
 parse_SDDecl_s({<<"tan"/utf8>>, State}) ->
-    parse_SDDecl_stan(cf(<<>>, State, empty));
+    parse_SDDecl_stan(cf(State));
 parse_SDDecl_s({<<"ta"/utf8>>, State}) ->
-    parse_SDDecl_sta(cf(<<>>, State, empty));
+    parse_SDDecl_sta(cf(State));
 parse_SDDecl_s({<<"t"/utf8>>, State}) ->
-    parse_SDDecl_st(cf(<<>>, State, empty));
+    parse_SDDecl_st(cf(State));
 parse_SDDecl_s({_, State}) ->
     fatal_error(bad_standalone, State).
 
 parse_SDDecl_st({<<"andalone"/utf8, Rest/binary>> = Stream, State}) ->
     parse_SDDecl_standalone(Rest, Stream, 8, State);
 parse_SDDecl_st({<<"andalon"/utf8>>, State}) ->
-    parse_SDDecl_standalon(cf(<<>>, State, empty));
+    parse_SDDecl_standalon(cf(State));
 parse_SDDecl_st({<<"andalo"/utf8>>, State}) ->
-    parse_SDDecl_standalo(cf(<<>>, State, empty));
+    parse_SDDecl_standalo(cf(State));
 parse_SDDecl_st({<<"andal"/utf8>>, State}) ->
-    parse_SDDecl_standal(cf(<<>>, State, empty));
+    parse_SDDecl_standal(cf(State));
 parse_SDDecl_st({<<"anda"/utf8>>, State}) ->
-    parse_SDDecl_standa(cf(<<>>, State, empty));
+    parse_SDDecl_standa(cf(State));
 parse_SDDecl_st({<<"and"/utf8>>, State}) ->
-    parse_SDDecl_stand(cf(<<>>, State, empty));
+    parse_SDDecl_stand(cf(State));
 parse_SDDecl_st({<<"an"/utf8>>, State}) ->
-    parse_SDDecl_stan(cf(<<>>, State, empty));
+    parse_SDDecl_stan(cf(State));
 parse_SDDecl_st({<<"a"/utf8>>, State}) ->
-    parse_SDDecl_sta(cf(<<>>, State, empty));
+    parse_SDDecl_sta(cf(State));
 parse_SDDecl_st({_, State}) ->
     fatal_error(bad_standalone, State).
 
 parse_SDDecl_sta({<<"ndalone"/utf8, Rest/binary>> = Stream, State}) ->
     parse_SDDecl_standalone(Rest, Stream, 7, State);
 parse_SDDecl_sta({<<"ndalon"/utf8>>, State}) ->
-    parse_SDDecl_standalon(cf(<<>>, State, empty));
+    parse_SDDecl_standalon(cf(State));
 parse_SDDecl_sta({<<"ndalo"/utf8>>, State}) ->
-    parse_SDDecl_standalo(cf(<<>>, State, empty));
+    parse_SDDecl_standalo(cf(State));
 parse_SDDecl_sta({<<"ndal"/utf8>>, State}) ->
-    parse_SDDecl_standal(cf(<<>>, State, empty));
+    parse_SDDecl_standal(cf(State));
 parse_SDDecl_sta({<<"nda"/utf8>>, State}) ->
-    parse_SDDecl_standa(cf(<<>>, State, empty));
+    parse_SDDecl_standa(cf(State));
 parse_SDDecl_sta({<<"nd"/utf8>>, State}) ->
-    parse_SDDecl_stand(cf(<<>>, State, empty));
+    parse_SDDecl_stand(cf(State));
 parse_SDDecl_sta({<<"n"/utf8>>, State}) ->
-    parse_SDDecl_stan(cf(<<>>, State, empty));
+    parse_SDDecl_stan(cf(State));
 parse_SDDecl_sta({_, State}) ->
     fatal_error(bad_standalone, State).
 
 parse_SDDecl_stan({<<"dalone"/utf8, Rest/binary>> = Stream, State}) ->
     parse_SDDecl_standalone(Rest, Stream, 6, State);
 parse_SDDecl_stan({<<"dalon"/utf8>>, State}) ->
-    parse_SDDecl_standalon(cf(<<>>, State, empty));
+    parse_SDDecl_standalon(cf(State));
 parse_SDDecl_stan({<<"dalo"/utf8>>, State}) ->
-    parse_SDDecl_standalo(cf(<<>>, State, empty));
+    parse_SDDecl_standalo(cf(State));
 parse_SDDecl_stan({<<"dal"/utf8>>, State}) ->
-    parse_SDDecl_standal(cf(<<>>, State, empty));
+    parse_SDDecl_standal(cf(State));
 parse_SDDecl_stan({<<"da"/utf8>>, State}) ->
-    parse_SDDecl_standa(cf(<<>>, State, empty));
+    parse_SDDecl_standa(cf(State));
 parse_SDDecl_stan({<<"d"/utf8>>, State}) ->
-    parse_SDDecl_stand(cf(<<>>, State, empty));
+    parse_SDDecl_stand(cf(State));
 parse_SDDecl_stan({_, State}) ->
     fatal_error(bad_standalone, State).
 
 parse_SDDecl_stand({<<"alone"/utf8, Rest/binary>> = Stream, State}) ->
     parse_SDDecl_standalone(Rest, Stream, 5, State);
 parse_SDDecl_stand({<<"alon"/utf8>>, State}) ->
-    parse_SDDecl_standalon(cf(<<>>, State, empty));
+    parse_SDDecl_standalon(cf(State));
 parse_SDDecl_stand({<<"alo"/utf8>>, State}) ->
-    parse_SDDecl_standalo(cf(<<>>, State, empty));
+    parse_SDDecl_standalo(cf(State));
 parse_SDDecl_stand({<<"al"/utf8>>, State}) ->
-    parse_SDDecl_standal(cf(<<>>, State, empty));
+    parse_SDDecl_standal(cf(State));
 parse_SDDecl_stand({<<"a"/utf8>>, State}) ->
-    parse_SDDecl_standa(cf(<<>>, State, empty));
+    parse_SDDecl_standa(cf(State));
 parse_SDDecl_stand({_, State}) ->
     fatal_error(bad_standalone, State).
 
 parse_SDDecl_standa({<<"lone"/utf8, Rest/binary>> = Stream, State}) ->
     parse_SDDecl_standalone(Rest, Stream, 4, State);
 parse_SDDecl_standa({<<"lon"/utf8>>, State}) ->
-    parse_SDDecl_standalon(cf(<<>>, State, empty));
+    parse_SDDecl_standalon(cf(State));
 parse_SDDecl_standa({<<"lo"/utf8>>, State}) ->
-    parse_SDDecl_standalo(cf(<<>>, State, empty));
+    parse_SDDecl_standalo(cf(State));
 parse_SDDecl_standa({<<"l"/utf8>>, State}) ->
-    parse_SDDecl_standal(cf(<<>>, State, empty));
+    parse_SDDecl_standal(cf(State));
 parse_SDDecl_standa({_, State}) ->
     fatal_error(bad_standalone, State).
 
 parse_SDDecl_standal({<<"one"/utf8, Rest/binary>> = Stream, State}) ->
     parse_SDDecl_standalone(Rest, Stream, 3, State);
 parse_SDDecl_standal({<<"on"/utf8>>, State}) ->
-    parse_SDDecl_standalon(cf(<<>>, State, empty));
+    parse_SDDecl_standalon(cf(State));
 parse_SDDecl_standal({<<"o"/utf8>>, State}) ->
-    parse_SDDecl_standalo(cf(<<>>, State, empty));
+    parse_SDDecl_standalo(cf(State));
 parse_SDDecl_standal({_, State}) ->
     fatal_error(bad_standalone, State).
 
 parse_SDDecl_standalo({<<"ne"/utf8, Rest/binary>> = Stream, State}) ->
     parse_SDDecl_standalone(Rest, Stream, 2, State);
 parse_SDDecl_standalo({<<"n"/utf8>>, State}) ->
-    parse_SDDecl_standalon(cf(<<>>, State, empty));
+    parse_SDDecl_standalon(cf(State));
 parse_SDDecl_standalo({_, State}) ->
     fatal_error(bad_standalone, State).
 
@@ -1314,7 +1311,7 @@ parse_XMLDecl_ltqxml(Bytes, Stream, Pos, State) ->
 parse_XMLDecl_end(<<"?>"/utf8, Rest/binary>>, Stream, Pos, State) ->
     {Rest, Stream, Pos + 2, State};
 parse_XMLDecl_end(<<"?"/utf8>>, _Stream, _Pos, State) ->
-    parse_XMLDecl_end_q(cf(<<>>, State, empty));
+    parse_XMLDecl_end_q(cf(State));
 parse_XMLDecl_end(_, _Stream, _Pos, State) ->
     fatal_error(bad_xmldecl, State).
 
@@ -1326,21 +1323,21 @@ parse_XMLDecl_end_q({_, State}) ->
 parse_XMLDecl(<<"<?xml"/utf8, Rest/binary>>, Stream, Pos, State) ->
     parse_XMLDecl_ltqxml(Rest, Stream, Pos + 5, State);
 parse_XMLDecl(<<"<?xm"/utf8>>, _Stream, _Pos, State) ->
-    parse_XMLDecl_ltqxm(cf(<<>>, State, empty));
+    parse_XMLDecl_ltqxm(cf(State));
 parse_XMLDecl(<<"<?x"/utf8>>, _Stream, _Pos, State) ->
-    parse_XMLDecl_ltqx(cf(<<>>, State, empty));
+    parse_XMLDecl_ltqx(cf(State));
 parse_XMLDecl(<<"<?"/utf8>>, _Stream, _Pos, State) ->
-    parse_XMLDecl_ltq(cf(<<>>, State, empty));
+    parse_XMLDecl_ltq(cf(State));
 parse_XMLDecl(<<"<"/utf8>>, _Stream, _Pos, State) ->
-    parse_XMLDecl_lt(cf(<<>>, State, empty));
+    parse_XMLDecl_lt(cf(State));
 parse_XMLDecl(<<>>, _Stream, _Pos, State) ->
-    {Stream1, State1} = cf(<<>>, State, empty),
+    {Stream1, State1} = cf(State),
     parse_XMLDecl(Stream1, Stream1, 0, State1);
 parse_XMLDecl(_Bytes, Stream, Pos, State) ->
     % default declaration
     State1 = set_next_parser_position(misc_pre_dtd, State),
     yaccety_sax:event_startDocument(
-        1.0,
+        <<"1.0">>,
         <<"UTF-8">>,
         false,
         false,
@@ -1351,27 +1348,27 @@ parse_XMLDecl(_Bytes, Stream, Pos, State) ->
 parse_XMLDecl_lt({<<"?xml"/utf8, Rest/binary>> = Stream, State}) ->
     parse_XMLDecl_ltqxml(Rest, Stream, 4, State);
 parse_XMLDecl_lt({<<"?xm"/utf8>>, State}) ->
-    parse_XMLDecl_ltqxm(cf(<<>>, State, empty));
+    parse_XMLDecl_ltqxm(cf(State));
 parse_XMLDecl_lt({<<"?x"/utf8>>, State}) ->
-    parse_XMLDecl_ltqx(cf(<<>>, State, empty));
+    parse_XMLDecl_ltqx(cf(State));
 parse_XMLDecl_lt({<<"?"/utf8>>, State}) ->
-    parse_XMLDecl_ltq(cf(<<>>, State, empty));
+    parse_XMLDecl_ltq(cf(State));
 parse_XMLDecl_lt({_, State}) ->
     fatal_error(bad_xmldecl, State).
 
 parse_XMLDecl_ltq({<<"xml"/utf8, Rest/binary>> = Stream, State}) ->
     parse_XMLDecl_ltqxml(Rest, Stream, 3, State);
 parse_XMLDecl_ltq({<<"xm"/utf8>>, State}) ->
-    parse_XMLDecl_ltqxm(cf(<<>>, State, empty));
+    parse_XMLDecl_ltqxm(cf(State));
 parse_XMLDecl_ltq({<<"x"/utf8>>, State}) ->
-    parse_XMLDecl_ltqx(cf(<<>>, State, empty));
+    parse_XMLDecl_ltqx(cf(State));
 parse_XMLDecl_ltq({_, State}) ->
     fatal_error(bad_xmldecl, State).
 
 parse_XMLDecl_ltqx({<<"ml"/utf8, Rest/binary>> = Stream, State}) ->
     parse_XMLDecl_ltqxml(Rest, Stream, 2, State);
 parse_XMLDecl_ltqx({<<"m"/utf8>>, State}) ->
-    parse_XMLDecl_ltqxm(cf(<<>>, State, empty));
+    parse_XMLDecl_ltqxm(cf(State));
 parse_XMLDecl_ltqx({_, State}) ->
     fatal_error(bad_xmldecl, State).
 
@@ -1388,13 +1385,13 @@ parse_Misc(<<"<!--"/utf8, Rest/binary>>, Stream, Pos, State) ->
 parse_Misc(<<"<?"/utf8, Rest/binary>>, Stream, Pos, State) ->
     parse_PI(Rest, Stream, Pos + 2, State);
 parse_Misc(<<"<!-"/utf8>>, _Stream, _Pos, State) ->
-    parse_Misc_ltbangdash(cf(<<>>, State, empty));
+    parse_Misc_ltbangdash(cf(State));
 parse_Misc(<<"<!"/utf8>>, _Stream, _Pos, State) ->
-    parse_Misc_ltbang(cf(<<>>, State, empty));
+    parse_Misc_ltbang(cf(State));
 parse_Misc(<<"<"/utf8>>, _Stream, _Pos, State) ->
-    parse_Misc_lt(cf(<<>>, State, empty));
+    parse_Misc_lt(cf(State));
 parse_Misc(<<>>, _Stream, _Pos, State) ->
-    case cf(<<>>, State, empty) of
+    case cf(State) of
         {no_bytes, State1} -> State1;
         {Stream1, State1} -> parse_Misc(Stream1, Stream1, 0, State1)
     end;
@@ -1409,9 +1406,9 @@ parse_Misc(Bytes, Stream, Pos, State) ->
 parse_Misc_lt({<<"!--"/utf8, Rest/binary>> = Stream, State}) ->
     parse_Comment(Rest, Stream, 3, State);
 parse_Misc_lt({<<"!-"/utf8>>, State}) ->
-    parse_Misc_ltbangdash(cf(<<>>, State, empty));
+    parse_Misc_ltbangdash(cf(State));
 parse_Misc_lt({<<"!"/utf8>>, State}) ->
-    parse_Misc_ltbang(cf(<<>>, State, empty));
+    parse_Misc_ltbang(cf(State));
 parse_Misc_lt({<<"?"/utf8, Rest/binary>> = Stream, State}) ->
     parse_PI(Rest, Stream, 1, State);
 parse_Misc_lt({_, State}) ->
@@ -1420,7 +1417,7 @@ parse_Misc_lt({_, State}) ->
 parse_Misc_ltbang({<<"--"/utf8, Rest/binary>> = Stream, State}) ->
     parse_Comment(Rest, Stream, 2, State);
 parse_Misc_ltbang({<<"-"/utf8>>, State}) ->
-    parse_Misc_ltbangdash(cf(<<>>, State, empty));
+    parse_Misc_ltbangdash(cf(State));
 parse_Misc_ltbang({_, State}) ->
     fatal_error(bad_misc, State).
 
@@ -1432,27 +1429,42 @@ parse_Misc_ltbangdash({_, State}) ->
 %%----------------------------------------------------------------------
 %% [43] content ::= CharData? ((element | Reference | CDSect | PI | Comment) CharData?)*
 %%----------------------------------------------------------------------
+-spec parse_content(_, _, _, _) ->
+    {#{
+            'line' := pos_integer(),
+            'type' := 'comment' | 'endElement' | 'processingInstruction' | 'startElement',
+            'attributes' => [any()],
+            'data' => binary(),
+            'namespaces' => [any()],
+            'qname' => {_, _, _},
+            'target' => binary(),
+            'text' => binary()
+        },
+        #ys_state{}} |
+    {binary() | [binary() | [any(), ...], ...], 'error' | 'no_bytes' | binary(), binary(),
+        non_neg_integer(), _} |
+    #ys_state{whitespace :: 'false'}.
 parse_content(<<"</"/utf8, Rest/binary>>, Stream, Pos, State) ->
     parse_ETag(Rest, Stream, Pos + 2, State);
 parse_content(<<"<!--"/utf8, Rest/binary>>, Stream, Pos, State) ->
     parse_Comment(Rest, Stream, Pos + 4, State);
 parse_content(<<"<!-"/utf8>>, _Stream, _Pos, State) ->
-    parse_content_ltbangdash(cf(<<>>, State, empty));
+    parse_content_ltbangdash(cf(State));
 parse_content(<<"<!["/utf8, Rest/binary>>, Stream, Pos, State) ->
     parse_CDSect(Rest, Stream, Pos + 3, State);
 parse_content(<<"<!"/utf8>>, _Stream, _Pos, State) ->
-    parse_content_ltbang(cf(<<>>, State, empty));
+    parse_content_ltbang(cf(State));
 parse_content(<<"<?"/utf8, Rest/binary>>, Stream, Pos, State) ->
     parse_PI(Rest, Stream, Pos + 2, State);
 parse_content(<<"<"/utf8>>, _Stream, _Pos, State) ->
-    parse_content_lt(cf(<<>>, State, empty));
+    parse_content_lt(cf(State));
 parse_content(<<"<"/utf8, Rest/binary>>, Stream, Pos, State) ->
     parse_element_lt(Rest, Stream, Pos + 1, State);
 parse_content(<<"&"/utf8, Rest/binary>>, Stream, Pos, State) ->
     {Ref, _Rest1, Stream1, Pos1, State1} = parse_Reference(Rest, Stream, Pos + 1, State),
     yaccety_sax:event_characters(Ref, false, false, false, set_state_pos(State1, Stream1, Pos1));
 parse_content(<<>>, _Stream, _Pos, State) ->
-    {Stream1, State1} = cf(<<>>, State, empty),
+    {Stream1, State1} = cf(State),
     parse_content(Stream1, Stream1, 0, State1);
 parse_content(Bytes, Stream, Pos, State) ->
     parse_CharData(Bytes, Stream, Pos, State).
@@ -1460,13 +1472,13 @@ parse_content(Bytes, Stream, Pos, State) ->
 parse_content_lt({<<"!--"/utf8, Rest/binary>> = Stream, State}) ->
     parse_Comment(Rest, Stream, 3, State);
 parse_content_lt({<<"!-"/utf8>>, State}) ->
-    parse_content_ltbangdash(cf(<<>>, State, empty));
+    parse_content_ltbangdash(cf(State));
 parse_content_lt({<<"!["/utf8, Rest/binary>> = Stream, State}) ->
     parse_CDSect(Rest, Stream, 2, State);
 parse_content_lt({<<"/"/utf8, Rest/binary>> = Stream, State}) ->
     parse_ETag(Rest, Stream, 1, State);
 parse_content_lt({<<"!"/utf8>>, State}) ->
-    parse_content_ltbang(cf(<<>>, State, empty));
+    parse_content_ltbang(cf(State));
 parse_content_lt({<<"?"/utf8, Rest/binary>> = Stream, State}) ->
     parse_PI(Rest, Stream, 1, State);
 parse_content_lt({Stream, State}) ->
@@ -1475,7 +1487,7 @@ parse_content_lt({Stream, State}) ->
 parse_content_ltbang({<<"--"/utf8, Rest/binary>> = Stream, State}) ->
     parse_Comment(Rest, Stream, 2, State);
 parse_content_ltbang({<<"-"/utf8>>, State}) ->
-    parse_content_ltbangdash(cf(<<>>, State, empty));
+    parse_content_ltbangdash(cf(State));
 parse_content_ltbang({<<"["/utf8, Rest/binary>> = Stream, State}) ->
     parse_CDSect(Rest, Stream, 1, State);
 parse_content_ltbang({_, State}) ->
@@ -1507,7 +1519,7 @@ parse_content_ltbangdash({_, State}) ->
 parse_element(<<$</utf8, Rest/binary>>, Stream, Pos, State) ->
     parse_element_lt(Rest, Stream, Pos + 1, State);
 parse_element(<<>>, _Stream, _Pos, State) ->
-    {Stream1, State1} = cf(<<>>, State, empty),
+    {Stream1, State1} = cf(State),
     parse_element(Stream1, Stream1, 0, State1);
 parse_element(_, _Stream, _Pos, State) ->
     fatal_error(non_element, State).
@@ -1550,7 +1562,7 @@ parse_element_lt(Bytes, Stream, Pos, State) ->
                 Rest,
                 Stream2,
                 Pos2 + 1,
-                State2#ys_state{inscope_ns = [NamespaceMap | Nss]},
+                State2,
                 QName,
                 As1,
                 Ns,
@@ -1569,10 +1581,10 @@ parse_element_empty(<<$>, _/binary>>, Stream, Pos, State, QName, Ats, Nss, P, Ta
     },
     yaccety_sax:event_startElement(QName, Ats, Nss, State1);
 parse_element_empty(<<>>, _Stream, _Pos, State, Name, Ats, Nss, P, Tags) ->
-    {Stream1, State1} = cf(<<>>, State, empty),
+    {Stream1, State1} = cf(State),
     parse_element_empty(Stream1, Stream1, 0, State1, Name, Ats, Nss, P, Tags);
 parse_element_empty(_, _, _, State, _, _, _, _, _) ->
-    fatal_error(bad_eleemnt, State).
+    fatal_error(bad_element, State).
 
 %%----------------------------------------------------------------------
 %% [41] Attribute ::= Name Eq AttValue
@@ -1638,7 +1650,7 @@ parse_AttValue(<<$'/utf8, Rest/binary>>, Stream, Pos, State) ->
 parse_AttValue(<<$"/utf8, Rest/binary>>, Stream, Pos, State) ->
     parse_AttValue_dq(Rest, Stream, Pos + 1, 0, State, []);
 parse_AttValue(<<>>, _Stream, _Pos, State) ->
-    {Stream1, State1} = cf(<<>>, State, empty),
+    {Stream1, State1} = cf(State),
     parse_AttValue(Stream1, Stream1, 0, State1);
 parse_AttValue(_, _, _, State) ->
     fatal_error(bad_attval, State).
@@ -1655,7 +1667,7 @@ parse_AttValue_sq(<<$&/utf8, Rest/binary>>, Stream, Pos, Len, State, Acc) ->
     ?FUNCTION_NAME(Bytes1, Stream1, Pos1, 0, State1, Acc2);
 parse_AttValue_sq(<<>>, Stream, Pos, Len, State, Acc) ->
     Acc1 = ?ACC(Stream, Pos, Len, Acc),
-    {Stream1, State1} = cf(<<>>, State, empty),
+    {Stream1, State1} = cf(State),
     ?FUNCTION_NAME(Stream1, Stream1, 0, 0, State1, Acc1);
 ?ONECHAR.
 
@@ -1671,7 +1683,7 @@ parse_AttValue_dq(<<$&/utf8, Rest/binary>>, Stream, Pos, Len, State, Acc) ->
     ?FUNCTION_NAME(Bytes1, Stream1, Pos1, 0, State1, Acc2);
 parse_AttValue_dq(<<>>, Stream, Pos, Len, State, Acc) ->
     Acc1 = ?ACC(Stream, Pos, Len, Acc),
-    {Stream1, State1} = cf(<<>>, State, empty),
+    {Stream1, State1} = cf(State),
     ?FUNCTION_NAME(Stream1, Stream1, 0, 0, State1, Acc1);
 ?ONECHAR.
 
@@ -1754,7 +1766,7 @@ parse_NCName(<<Char/utf8, Rest/binary>>, Stream, Pos, State) when
 parse_NCName(<<Char/utf8, _Rest/binary>>, _Stream, _Pos, _State) ->
     fatal_error(bad_name, Char);
 parse_NCName(<<>>, _Stream, _Pos, State) ->
-    {Stream1, State1} = cf(<<>>, State, empty),
+    {Stream1, State1} = cf(State),
     parse_NCName(Stream1, Stream1, 0, State1);
 parse_NCName(Bytes = <<30:5, _:3>>, _Stream, _Pos, State) ->
     ?FSTNAMECHARPARTFUN(3, parse_Name);
@@ -1814,7 +1826,7 @@ parse_NCName(<<Char/utf8, Rest/binary>> = Bytes, Stream, Pos, Len, State, Acc) -
     end;
 parse_NCName(<<>>, Stream, Pos, Len, State, Acc) ->
     Acc1 = ?ACC(Stream, Pos, Len, Acc),
-    {Stream1, State1} = cf(Stream, State, empty),
+    {Stream1, State1} = cf(State),
     parse_NCName(Stream1, Stream1, 0, 0, State1, Acc1);
 parse_NCName(Bytes = <<30:5, _:3>>, Stream, Pos, Len, State, Acc) ->
     ?NAMECHARPARTFUN(3);
@@ -1857,7 +1869,6 @@ qualify_attribute_names(Atts, Nss) ->
         || #{qname := {P, L}} = Att <- Atts
     ].
 
-% <<"xml">> =>
 expand_qname(<<>>, L, none) when is_binary(L) ->
     {<<>>, <<>>, L};
 expand_qname(<<"xml">>, L, _) when is_binary(L) ->
@@ -1893,9 +1904,9 @@ namespace_map_from_list([], Map) ->
     Map.
 
 merge_namespaces(none, none) -> none;
-merge_namespaces(none, NewNsMap) -> NewNsMap;
+merge_namespaces(none, NewNsMap) -> maps:merge(#{<<>> => <<>>}, NewNsMap);
 merge_namespaces(LastNss, none) -> LastNss;
-merge_namespaces(LastNss, NewNsMap) -> maps:merge(NewNsMap, LastNss).
+merge_namespaces(LastNss, NewNsMap) -> maps:merge(LastNss, NewNsMap).
 
 fatal_error(Reason, State) ->
     error(Reason, [State]).
@@ -1940,7 +1951,7 @@ parse_Nmtoken(Bytes, Stream, Pos, State) ->
 %% [11] SystemLiteral ::= ('"' [^"]* '"') | ("'" [^']* "'")
 %%----------------------------------------------------------------------
 parse_SystemLiteral(<<>>, _Stream, _Pos, State) ->
-    {Stream1, State1} = cf(<<>>, State, empty),
+    {Stream1, State1} = cf(State),
     parse_SystemLiteral(Stream1, Stream1, 0, State1);
 parse_SystemLiteral(<<$'/utf8, Rest/binary>>, Stream, Pos, State) ->
     parse_SystemLiteral_sq(Rest, Stream, Pos + 1, 0, State, []);
@@ -1963,7 +1974,7 @@ parse_SystemLiteral_dq(<<$"/utf8, Rest/binary>>, Stream, Pos, Len, State, Acc) -
 %% [12] PubidLiteral ::= '"' PubidChar* '"' | "'" (PubidChar - "'")* "'"
 %%----------------------------------------------------------------------
 parse_PubidLiteral(<<>>, _Stream, _Pos, State) ->
-    {Stream1, State1} = cf(<<>>, State, empty),
+    {Stream1, State1} = cf(State),
     parse_PubidLiteral(Stream1, Stream1, 0, State1);
 parse_PubidLiteral(<<$'/utf8, Rest/binary>>, Stream, Pos, State) ->
     parse_PubidLiteral_sq(Rest, Stream, Pos + 1, 0, State, []);
@@ -1989,103 +2000,103 @@ parse_PubidLiteral_dq(<<$"/utf8, Rest/binary>>, Stream, Pos, Len, State, Acc) ->
 % %% [WFC: External Subset]
 % %%----------------------------------------------------------------------
 % parse_doctypedecl(<<"<!DOCTYPE"/utf8>>, _Stream, _Pos, State) ->
-%     parse_doctypedecl_ltexDOCTYPE(cf(<<>>, State, empty));
+%     parse_doctypedecl_ltexDOCTYPE(cf(State));
 % parse_doctypedecl(<<"<!DOCTYP"/utf8>>, _Stream, _Pos, State) ->
-%     parse_doctypedecl_ltexDOCTYP(cf(<<>>, State, empty));
+%     parse_doctypedecl_ltexDOCTYP(cf(State));
 % parse_doctypedecl(<<"<!DOCTY"/utf8>>, _Stream, _Pos, State) ->
-%     parse_doctypedecl_ltexDOCTY(cf(<<>>, State, empty));
+%     parse_doctypedecl_ltexDOCTY(cf(State));
 % parse_doctypedecl(<<"<!DOCT"/utf8>>, _Stream, _Pos, State) ->
-%     parse_doctypedecl_ltexDOCT(cf(<<>>, State, empty));
+%     parse_doctypedecl_ltexDOCT(cf(State));
 % parse_doctypedecl(<<"<!DOC"/utf8>>, _Stream, _Pos, State) ->
-%     parse_doctypedecl_ltexDOC(cf(<<>>, State, empty));
+%     parse_doctypedecl_ltexDOC(cf(State));
 % parse_doctypedecl(<<"<!DO"/utf8>>, _Stream, _Pos, State) ->
-%     parse_doctypedecl_ltexDO(cf(<<>>, State, empty));
+%     parse_doctypedecl_ltexDO(cf(State));
 % parse_doctypedecl(<<"<!D"/utf8>>, _Stream, _Pos, State) ->
-%     parse_doctypedecl_ltexD(cf(<<>>, State, empty));
+%     parse_doctypedecl_ltexD(cf(State));
 % parse_doctypedecl(<<"<!"/utf8>>, _Stream, _Pos, State) ->
-%     parse_doctypedecl_ltex(cf(<<>>, State, empty));
+%     parse_doctypedecl_ltex(cf(State));
 % parse_doctypedecl(<<"<"/utf8>>, _Stream, _Pos, State) ->
-%     parse_doctypedecl_lt(cf(<<>>, State, empty)).
+%     parse_doctypedecl_lt(cf(State)).
 
 % parse_doctypedecl_lt({<<"!DOCTYPE"/utf8>>, State}) ->
-%     parse_doctypedecl_ltexDOCTYPE(cf(<<>>, State, empty));
+%     parse_doctypedecl_ltexDOCTYPE(cf(State));
 % parse_doctypedecl_lt({<<"!DOCTYP"/utf8>>, State}) ->
-%     parse_doctypedecl_ltexDOCTYP(cf(<<>>, State, empty));
+%     parse_doctypedecl_ltexDOCTYP(cf(State));
 % parse_doctypedecl_lt({<<"!DOCTY"/utf8>>, State}) ->
-%     parse_doctypedecl_ltexDOCTY(cf(<<>>, State, empty));
+%     parse_doctypedecl_ltexDOCTY(cf(State));
 % parse_doctypedecl_lt({<<"!DOCT"/utf8>>, State}) ->
-%     parse_doctypedecl_ltexDOCT(cf(<<>>, State, empty));
+%     parse_doctypedecl_ltexDOCT(cf(State));
 % parse_doctypedecl_lt({<<"!DOC"/utf8>>, State}) ->
-%     parse_doctypedecl_ltexDOC(cf(<<>>, State, empty));
+%     parse_doctypedecl_ltexDOC(cf(State));
 % parse_doctypedecl_lt({<<"!DO"/utf8>>, State}) ->
-%     parse_doctypedecl_ltexDO(cf(<<>>, State, empty));
+%     parse_doctypedecl_ltexDO(cf(State));
 % parse_doctypedecl_lt({<<"!D"/utf8>>, State}) ->
-%     parse_doctypedecl_ltexD(cf(<<>>, State, empty));
+%     parse_doctypedecl_ltexD(cf(State));
 % parse_doctypedecl_lt({<<"!"/utf8>>, State}) ->
-%     parse_doctypedecl_ltex(cf(<<>>, State, empty)).
+%     parse_doctypedecl_ltex(cf(State)).
 
 % parse_doctypedecl_ltex({<<"DOCTYPE"/utf8>>, State}) ->
-%     parse_doctypedecl_ltexDOCTYPE(cf(<<>>, State, empty));
+%     parse_doctypedecl_ltexDOCTYPE(cf(State));
 % parse_doctypedecl_ltex({<<"DOCTYP"/utf8>>, State}) ->
-%     parse_doctypedecl_ltexDOCTYP(cf(<<>>, State, empty));
+%     parse_doctypedecl_ltexDOCTYP(cf(State));
 % parse_doctypedecl_ltex({<<"DOCTY"/utf8>>, State}) ->
-%     parse_doctypedecl_ltexDOCTY(cf(<<>>, State, empty));
+%     parse_doctypedecl_ltexDOCTY(cf(State));
 % parse_doctypedecl_ltex({<<"DOCT"/utf8>>, State}) ->
-%     parse_doctypedecl_ltexDOCT(cf(<<>>, State, empty));
+%     parse_doctypedecl_ltexDOCT(cf(State));
 % parse_doctypedecl_ltex({<<"DOC"/utf8>>, State}) ->
-%     parse_doctypedecl_ltexDOC(cf(<<>>, State, empty));
+%     parse_doctypedecl_ltexDOC(cf(State));
 % parse_doctypedecl_ltex({<<"DO"/utf8>>, State}) ->
-%     parse_doctypedecl_ltexDO(cf(<<>>, State, empty));
+%     parse_doctypedecl_ltexDO(cf(State));
 % parse_doctypedecl_ltex({<<"D"/utf8>>, State}) ->
-%     parse_doctypedecl_ltexD(cf(<<>>, State, empty)).
+%     parse_doctypedecl_ltexD(cf(State)).
 
 % parse_doctypedecl_ltexD({<<"OCTYPE"/utf8>>, State}) ->
-%     parse_doctypedecl_ltexDOCTYPE(cf(<<>>, State, empty));
+%     parse_doctypedecl_ltexDOCTYPE(cf(State));
 % parse_doctypedecl_ltexD({<<"OCTYP"/utf8>>, State}) ->
-%     parse_doctypedecl_ltexDOCTYP(cf(<<>>, State, empty));
+%     parse_doctypedecl_ltexDOCTYP(cf(State));
 % parse_doctypedecl_ltexD({<<"OCTY"/utf8>>, State}) ->
-%     parse_doctypedecl_ltexDOCTY(cf(<<>>, State, empty));
+%     parse_doctypedecl_ltexDOCTY(cf(State));
 % parse_doctypedecl_ltexD({<<"OCT"/utf8>>, State}) ->
-%     parse_doctypedecl_ltexDOCT(cf(<<>>, State, empty));
+%     parse_doctypedecl_ltexDOCT(cf(State));
 % parse_doctypedecl_ltexD({<<"OC"/utf8>>, State}) ->
-%     parse_doctypedecl_ltexDOC(cf(<<>>, State, empty));
+%     parse_doctypedecl_ltexDOC(cf(State));
 % parse_doctypedecl_ltexD({<<"O"/utf8>>, State}) ->
-%     parse_doctypedecl_ltexDO(cf(<<>>, State, empty)).
+%     parse_doctypedecl_ltexDO(cf(State)).
 
 % parse_doctypedecl_ltexDO({<<"CTYPE"/utf8>>, State}) ->
-%     parse_doctypedecl_ltexDOCTYPE(cf(<<>>, State, empty));
+%     parse_doctypedecl_ltexDOCTYPE(cf(State));
 % parse_doctypedecl_ltexDO({<<"CTYP"/utf8>>, State}) ->
-%     parse_doctypedecl_ltexDOCTYP(cf(<<>>, State, empty));
+%     parse_doctypedecl_ltexDOCTYP(cf(State));
 % parse_doctypedecl_ltexDO({<<"CTY"/utf8>>, State}) ->
-%     parse_doctypedecl_ltexDOCTY(cf(<<>>, State, empty));
+%     parse_doctypedecl_ltexDOCTY(cf(State));
 % parse_doctypedecl_ltexDO({<<"CT"/utf8>>, State}) ->
-%     parse_doctypedecl_ltexDOCT(cf(<<>>, State, empty));
+%     parse_doctypedecl_ltexDOCT(cf(State));
 % parse_doctypedecl_ltexDO({<<"C"/utf8>>, State}) ->
-%     parse_doctypedecl_ltexDOC(cf(<<>>, State, empty)).
+%     parse_doctypedecl_ltexDOC(cf(State)).
 
 % parse_doctypedecl_ltexDOC({<<"TYPE"/utf8>>, State}) ->
-%     parse_doctypedecl_ltexDOCTYPE(cf(<<>>, State, empty));
+%     parse_doctypedecl_ltexDOCTYPE(cf(State));
 % parse_doctypedecl_ltexDOC({<<"TYP"/utf8>>, State}) ->
-%     parse_doctypedecl_ltexDOCTYP(cf(<<>>, State, empty));
+%     parse_doctypedecl_ltexDOCTYP(cf(State));
 % parse_doctypedecl_ltexDOC({<<"TY"/utf8>>, State}) ->
-%     parse_doctypedecl_ltexDOCTY(cf(<<>>, State, empty));
+%     parse_doctypedecl_ltexDOCTY(cf(State));
 % parse_doctypedecl_ltexDOC({<<"T"/utf8>>, State}) ->
-%     parse_doctypedecl_ltexDOCT(cf(<<>>, State, empty)).
+%     parse_doctypedecl_ltexDOCT(cf(State)).
 
 % parse_doctypedecl_ltexDOCT({<<"YPE"/utf8>>, State}) ->
-%     parse_doctypedecl_ltexDOCTYPE(cf(<<>>, State, empty));
+%     parse_doctypedecl_ltexDOCTYPE(cf(State));
 % parse_doctypedecl_ltexDOCT({<<"YP"/utf8>>, State}) ->
-%     parse_doctypedecl_ltexDOCTYP(cf(<<>>, State, empty));
+%     parse_doctypedecl_ltexDOCTYP(cf(State));
 % parse_doctypedecl_ltexDOCT({<<"Y"/utf8>>, State}) ->
-%     parse_doctypedecl_ltexDOCTY(cf(<<>>, State, empty)).
+%     parse_doctypedecl_ltexDOCTY(cf(State)).
 
 % parse_doctypedecl_ltexDOCTY({<<"PE"/utf8>>, State}) ->
-%     parse_doctypedecl_ltexDOCTYPE(cf(<<>>, State, empty));
+%     parse_doctypedecl_ltexDOCTYPE(cf(State));
 % parse_doctypedecl_ltexDOCTY({<<"P"/utf8>>, State}) ->
-%     parse_doctypedecl_ltexDOCTYP(cf(<<>>, State, empty)).
+%     parse_doctypedecl_ltexDOCTYP(cf(State)).
 
 % parse_doctypedecl_ltexDOCTYP({<<"E"/utf8>>, State}) ->
-%     parse_doctypedecl_ltexDOCTYPE(cf(<<>>, State, empty)).
+%     parse_doctypedecl_ltexDOCTYPE(cf(State)).
 
 % parse_doctypedecl(Stream, State) when
 %     Stream == ?CHARS("<");
