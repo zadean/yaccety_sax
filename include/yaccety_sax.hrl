@@ -1,26 +1,43 @@
 -record(ys_state, {
+    rest_stream = <<>>,
     position = [document],
-    stream_offset = {<<>>, 0},
-    inscope_ns = [none],
     tags = [],
+    inscope_ns = [none],
     line = 1,
+    continuation = undefined,
+    base = undefined,
+    dtd = undefined,
+    in_replacement = false,
     whitespace = false,
     comments = true,
     proc_inst = true,
-    continuation = undefined,
-    base = undefined,
     standalone = false,
-    dtd = undefined
+    namespace_aware = true,
+    external = undefined
 }).
 
--type qname() :: {
-    % Namespace URI of this QName.
-    NamespaceUri :: binary(),
-    % Prefix of this QName.
-    Prefix :: binary(),
-    % Local part of this QName.
-    LocalPart :: binary()
-}.
+-record(ys_state_simple, {
+    rest_stream = <<>>,
+    position = [document],
+    tags = [],
+    continuation = undefined
+}).
+
+-type qname() ::
+    {
+        % Prefix of this QName.
+        Prefix :: binary(),
+        % Local part of this QName.
+        LocalPart :: binary()
+    }
+    | {
+        % Namespace URI of this QName.
+        NamespaceUri :: binary(),
+        % Prefix of this QName.
+        Prefix :: binary(),
+        % Local part of this QName.
+        LocalPart :: binary()
+    }.
 
 -type location() :: pos_integer().
 
@@ -37,19 +54,29 @@
     | {enum, list(binary())}.
 
 -type processed_dtd() :: #{
-    external := {Pub :: binary(), Sys :: binary()},
-    elements := #{Name :: binary() := empty | any | mixed | {mixed, [binary()]}},
-    attributes := #{Elem :: binary() := [term()]},
-    notations := #{Name :: binary() := {binary(), binary()}},
-    references := #{Name :: binary() := term()},
-    parameters := #{Name :: binary() := binary()}
+    % Root element name
+    name := undefined | qname(),
+    % External DTD IDs
+    external_id := undefined | {Pub :: binary(), Sys :: binary()},
+    % Element declarations
+    elems := #{Name :: binary() := empty | any | mixed | {mixed, [binary()]}},
+    % Attribute List declarations
+    atts := #{Elem :: binary() := [term()]},
+    % Notation declarations
+    nots := #{Name :: binary() := {binary(), binary()}},
+    % Entities used in the document content
+    gen_ents := #{Name :: binary() := binary()},
+    % Entities used in the DTD
+    par_ents := #{Name :: binary() := binary()},
+    % Stack of named references
+    ref_stack := list(),
+    % Processing Instructions and comments from the DTD
+    pi_comments := list()
 }.
 
 -type xml_dtd() :: #{
     type := dtd,
     line := location(),
-    % Entire Document Type Declaration as a string
-    text := binary(),
     % Representation of the DTD
     proc := undefined | processed_dtd()
 }.
@@ -143,45 +170,12 @@
     prefix := binary()
 }.
 
-% unparsed entity declarations
--type xml_entityDeclaration() ::
-    {Type :: entityDeclaration, Location :: location(),
-        % Base URI for this reference or `undefined` if this information is not available
-        BaseURI :: undefined | binary(),
-        % The entity's name.
-        Name :: binary(),
-        % The name of the associated notation.
-        NotationName :: binary(),
-        % The entity's public identifier, or `undefined` if none was given
-        PublicId :: undefined | binary(),
-        % The replacement text of the entity.
-        ReplText :: binary(),
-        % The entity's system identifier.
-        SystemId :: binary()}.
-
--type xml_entityReference() ::
-    {Type :: entityReference, Location :: location(),
-        % The declaration of this entity.
-        Declaration :: xml_entityDeclaration(),
-        % The entity's name.
-        Name :: binary()}.
-
--type xml_notationDeclaration() ::
-    {Type :: notationDeclaration, Location :: location(),
-        % The notation's name.
-        Name :: binary(),
-        % The notation's public identifier, or `undefined` if none was given
-        PublicId :: undefined | binary(),
-        % The notation's system identifier, or `undefined` if none was given
-        SystemId :: undefined | binary()}.
-
 -type xml_event() ::
     xml_characters()
     | xml_comment()
     | xml_dtd()
     | xml_endDocument()
     | xml_endElement()
-    | xml_entityReference()
     | xml_processingInstruction()
     | xml_startDocument()
     | xml_startElement().

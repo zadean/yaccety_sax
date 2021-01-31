@@ -19,3 +19,12 @@ rebar3.crashdump
 *~
 .settings
 .project
+.vscode
+.tool-versions
+.DS_Store
+test/yaccety_sax_std_SUITE_data/eduni/
+test/yaccety_sax_std_SUITE_data/ibm/
+test/yaccety_sax_std_SUITE_data/japanese/
+test/yaccety_sax_std_SUITE_data/oasis/
+test/yaccety_sax_std_SUITE_data/sun/
+test/yaccety_sax_std_SUITE_data/xmltest/
