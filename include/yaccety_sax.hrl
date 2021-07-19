@@ -16,13 +16,6 @@
     external = undefined
 }).
 
--record(ys_state_simple, {
-    rest_stream = <<>>,
-    position = [document],
-    tags = [],
-    continuation = undefined
-}).
-
 -type qname() ::
     {
         % Prefix of this QName.
