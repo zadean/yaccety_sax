@@ -21,7 +21,6 @@ It works like an iterator on any set or list-like type, but returns XML events i
 
 ### Roadmap of Coming Features
 
-* "Simple" mode for parsing things like SOAP from a single binary. (No DTD, no partial binaries, no PIs, comments ignored, etc.)
 * Handling of common security risks known from parsing DTDs
 * Content skipping - skipping entire content of an element
 * Event writing - Serializing event streams back into XML
