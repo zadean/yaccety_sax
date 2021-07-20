@@ -6,13 +6,13 @@
 }).
 
 -type qname() :: {
-        % Namespace URI of this QName.
-        NamespaceUri :: binary(),
-        % Prefix of this QName.
-        Prefix :: binary(),
-        % Local part of this QName.
-        LocalPart :: binary()
-    }.
+    % Namespace URI of this QName.
+    NamespaceUri :: binary(),
+    % Prefix of this QName.
+    Prefix :: binary(),
+    % Local part of this QName.
+    LocalPart :: binary()
+}.
 
 -type xml_startDocument() :: {
     startDocument,

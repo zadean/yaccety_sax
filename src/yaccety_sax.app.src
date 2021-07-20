@@ -1,6 +1,6 @@
 {application, yaccety_sax, [
-    {description, "An OTP library"},
-    {vsn, "0.1.0"},
+    {description, "Fast, StAX-like XML Parser for BEAM Languages"},
+    {vsn, "0.2.0"},
     {registered, []},
     {applications, [
         kernel,
@@ -10,5 +10,5 @@
     {modules, []},
 
     {licenses, ["Apache 2.0"]},
-    {links, []}
+    {links, ["https://github.com/zadean/yaccety_sax"]}
 ]}.

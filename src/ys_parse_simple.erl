@@ -11,7 +11,6 @@
     event_endElement/2
 ]).
 
-
 -include("yaccety_sax_simple.hrl").
 
 -define(APPEND(Thing, Acc), append(Thing, Acc)).
