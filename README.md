@@ -29,6 +29,20 @@ It works like an iterator on any set or list-like type, but returns XML events i
 * XML 1.1 ??
 * Others? add an issue to the repo :-)
 
+### Parsing SOAP from an API
+
+Chances are when parsing XML from some REST API, you won't need a lot of the features `yaccety` has.
+This is what `yaccety_sax_simple` is for.
+
+It works mostly in the same way as the full version, except for:
+
+* Smaller, tuple events
+* Comments are ignored
+* Whitespace text nodes are ignored
+* Processing-instructions are not allowed
+* DTDs are not allowed
+* The entire UTF-8 XML is passed to `yaccety_sax_simple:string/1` without a continuation function
+
 ### Examples
 
 #### Checking XMLs with different encodings and human-readability for equality
