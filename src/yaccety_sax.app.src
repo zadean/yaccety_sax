@@ -1,6 +1,6 @@
 {application, yaccety_sax, [
     {description, "Fast, StAX-like XML Parser for BEAM Languages"},
-    {vsn, "0.2.1"},
+    {vsn, "0.2.2"},
     {registered, []},
     {applications, [
         kernel,
@@ -8,7 +8,6 @@
     ]},
     {env, []},
     {modules, []},
-
     {licenses, ["Apache 2.0"]},
     {links, [{"GitHub", "https://github.com/zadean/yaccety_sax"}]}
 ]}.
