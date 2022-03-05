@@ -25,9 +25,6 @@
 -define(MATCH6, Bytes6, Stream6, Pos6, State6).
 -define(MATCH7, Bytes7, Stream7, Pos7, State7).
 
--define(XML_NS, <<"http://www.w3.org/XML/1998/namespace">>).
--define(XMLNS_NS, <<"http://www.w3.org/2000/xmlns/">>).
-
 -define(WS(Char), (Char == 16#20 orelse Char == 16#9 orelse Char == 16#A orelse Char == 16#D)).
 
 -compile({inline, [append/2, set_state_pos/2, to_binary/1, fatal_error/2]}).
@@ -98,10 +95,33 @@ maybe_consume_s(Part, Stream, Pos, State, Found) ->
 %% [5] Name ::= NameStartChar (NameChar)*
 %%----------------------------------------------------------------------
 
+-define(NAMECHAR1(Char),
+    (Char == $: orelse (Char >= $A andalso Char =< $Z) orelse Char == $_ orelse
+        (Char >= $a andalso Char =< $z))
+).
+-define(NAMECHAR(Char),
+    (Char == $- orelse
+        Char == $. orelse
+        (Char >= $0 andalso Char =< $9) orelse
+        Char == $: orelse (Char >= $A andalso Char =< $Z) orelse Char == $_ orelse
+        (Char >= $a andalso Char =< $z))
+).
+parse_Name(<<Char1, Char2, Char3, Char4, Rest/bitstring>>, Stream, Pos, State) when
+    ?NAMECHAR1(Char1), ?NAMECHAR(Char2), ?NAMECHAR(Char3), ?NAMECHAR(Char4)
+->
+    parse_Name(Rest, Stream, Pos, 4, State, []);
+parse_Name(<<Char1, Char2, Char3, Rest/bitstring>>, Stream, Pos, State) when
+    ?NAMECHAR1(Char1), ?NAMECHAR(Char2), ?NAMECHAR(Char3)
+->
+    parse_Name(Rest, Stream, Pos, 3, State, []);
+parse_Name(<<Char1, Char2, Rest/bitstring>>, Stream, Pos, State) when
+    ?NAMECHAR1(Char1), ?NAMECHAR(Char2)
+->
+    parse_Name(Rest, Stream, Pos, 2, State, []);
+parse_Name(<<Char, Rest/bitstring>>, Stream, Pos, State) when ?NAMECHAR1(Char) ->
+    parse_Name(Rest, Stream, Pos, 1, State, []);
 parse_Name(<<Char/utf8, Rest/bitstring>>, Stream, Pos, State) ->
     if
-        Char == $:; Char >= $A, Char =< $Z; Char == $_; Char >= $a, Char =< $z ->
-            parse_Name(Rest, Stream, Pos, 1, State, []);
         Char >= 16#C0, Char =< 16#D6;
         Char >= 16#D8, Char =< 16#F6;
         Char >= 16#F8, Char =< 16#2FF;
@@ -124,16 +144,23 @@ parse_Name(<<Char/utf8, Rest/bitstring>>, Stream, Pos, State) ->
 parse_Name(Bytes, _, _, State) ->
     fatal_error(bad_name, {Bytes, State}).
 
-parse_Name(<<Char/utf8, Rest/bitstring>>, Stream, Pos, Len, State, Acc) when
-    Char == $-;
-    Char == $.;
-    Char >= $0, Char =< $9;
-    Char == $:;
-    Char >= $A, Char =< $Z;
-    Char == $_;
-    Char >= $a, Char =< $z
+parse_Name(<<Char1, Char2, Char3, Char4, Rest/bitstring>>, Stream, Pos, Len, State, Acc) when
+    ?NAMECHAR(Char1), ?NAMECHAR(Char2), ?NAMECHAR(Char3), ?NAMECHAR(Char4)
 ->
+    parse_Name(Rest, Stream, Pos, Len + 4, State, Acc);
+parse_Name(<<Char1, Char2, Char3, Rest/bitstring>>, Stream, Pos, Len, State, Acc) when
+    ?NAMECHAR(Char1), ?NAMECHAR(Char2), ?NAMECHAR(Char3)
+->
+    parse_Name(Rest, Stream, Pos, Len + 3, State, Acc);
+parse_Name(<<Char1, Char2, Rest/bitstring>>, Stream, Pos, Len, State, Acc) when
+    ?NAMECHAR(Char1), ?NAMECHAR(Char2)
+->
+    parse_Name(Rest, Stream, Pos, Len + 2, State, Acc);
+parse_Name(<<Char, Rest/bitstring>>, Stream, Pos, Len, State, Acc) when ?NAMECHAR(Char) ->
     parse_Name(Rest, Stream, Pos, Len + 1, State, Acc);
+parse_Name(<<Char, _/bitstring>> = Bytes, Stream, Pos, Len, State, Acc) when Char < 16#80 ->
+    Acc1 = ?ACC(Stream, Pos, Len, Acc),
+    {to_binary(Acc1), Bytes, Stream, Pos + Len, State};
 parse_Name(<<Char/utf8, Rest/bitstring>>, Stream, Pos, Len, State, Acc) when
     Char == 16#B7;
     Char >= 16#C0, Char =< 16#D6;
@@ -251,14 +278,6 @@ parse_Comment(?MATCH) ->
     {_, _, _, _, State1} = parse_Comment(Bytes, Stream, Pos, 0, State, []),
     State1.
 
-parse_Comment(<<$\r, $\n, Rest/bitstring>>, Stream, Pos, Len, State, Acc) ->
-    Acc1 = ?ACC(Stream, Pos, Len, Acc),
-    Acc2 = ?APPEND(<<$\n>>, Acc1),
-    ?FUNCTION_NAME(Rest, Stream, Pos + Len + 2, 0, State, Acc2);
-parse_Comment(<<$\r, Rest/bitstring>>, Stream, Pos, Len, State, Acc) ->
-    Acc1 = ?ACC(Stream, Pos, Len, Acc),
-    Acc2 = ?APPEND(<<$\n>>, Acc1),
-    ?FUNCTION_NAME(Rest, Stream, Pos + Len + 1, 0, State, Acc2);
 parse_Comment(<<$-/utf8, $-/utf8, $>/utf8, Rest/bitstring>>, Stream, Pos, Len, State, Acc) ->
     Acc1 = ?ACC(Stream, Pos, Len, Acc),
     {Acc1, Rest, Stream, Pos + Len + 3, State};
@@ -287,14 +306,6 @@ parse_CharData(?MATCH, Acc) ->
     {{_, Text}, Bytes1, _, _, State1} = parse_CharData(Bytes, Stream, Pos, 0, State, Acc),
     event_characters(to_binary(Text), set_state_pos(State1, Bytes1)).
 
-parse_CharData(<<$\r, $\n, Rest/bitstring>>, Stream, Pos, Len, State, Acc) ->
-    Acc1 = ?ACC(Stream, Pos, Len, Acc),
-    Acc2 = ?APPEND(<<$\n>>, Acc1),
-    parse_CharData(Rest, Stream, Pos + Len + 2, 0, State, Acc2);
-parse_CharData(<<$\r, Rest/bitstring>>, Stream, Pos, Len, State, Acc) ->
-    Acc1 = ?ACC(Stream, Pos, Len, Acc),
-    Acc2 = ?APPEND(<<$\n>>, Acc1),
-    parse_CharData(Rest, Stream, Pos + Len + 1, 0, State, Acc2);
 parse_CharData(Bytes = <<$</utf8, _/bitstring>>, Stream, Pos, Len, State, Acc) ->
     Text = ?ACC(Stream, Pos, Len, Acc),
     {{false, Text}, Bytes, Stream, Pos + Len, State};
@@ -307,26 +318,18 @@ parse_CharData(<<"]]>"/utf8, _/bitstring>>, _, _, _, State, _Acc) ->
     fatal_error(bad_char_data, State);
 ?ONECHAR.
 
-parse_CharData_ws(<<$\s, $\s, $\s, $\s, Rest/bitstring>>, Stream, Pos, Len, State, Acc) ->
+parse_CharData_ws(<<Char1, Char2, Char3, Char4, Rest/bitstring>>, Stream, Pos, Len, State, Acc) when
+    ?WS(Char1), ?WS(Char2), ?WS(Char3), ?WS(Char4)
+->
     parse_CharData_ws(Rest, Stream, Pos, Len + 4, State, Acc);
-parse_CharData_ws(<<$\t, $\t, $\t, $\t, Rest/bitstring>>, Stream, Pos, Len, State, Acc) ->
-    parse_CharData_ws(Rest, Stream, Pos, Len + 4, State, Acc);
-parse_CharData_ws(<<$\s, $\s, $\s, Rest/bitstring>>, Stream, Pos, Len, State, Acc) ->
+parse_CharData_ws(<<Char1, Char2, Char3, Rest/bitstring>>, Stream, Pos, Len, State, Acc) when
+    ?WS(Char1), ?WS(Char2), ?WS(Char3)
+->
     parse_CharData_ws(Rest, Stream, Pos, Len + 3, State, Acc);
-parse_CharData_ws(<<$\t, $\t, $\t, Rest/bitstring>>, Stream, Pos, Len, State, Acc) ->
-    parse_CharData_ws(Rest, Stream, Pos, Len + 3, State, Acc);
-parse_CharData_ws(<<$\s, $\s, Rest/bitstring>>, Stream, Pos, Len, State, Acc) ->
+parse_CharData_ws(<<Char1, Char2, Rest/bitstring>>, Stream, Pos, Len, State, Acc) when
+    ?WS(Char1), ?WS(Char2)
+->
     parse_CharData_ws(Rest, Stream, Pos, Len + 2, State, Acc);
-parse_CharData_ws(<<$\t, $\t, Rest/bitstring>>, Stream, Pos, Len, State, Acc) ->
-    parse_CharData_ws(Rest, Stream, Pos, Len + 2, State, Acc);
-parse_CharData_ws(<<$\r, $\n, Rest/bitstring>>, Stream, Pos, Len, State, Acc) ->
-    Acc1 = ?ACC(Stream, Pos, Len, Acc),
-    Acc2 = ?APPEND(<<$\n>>, Acc1),
-    parse_CharData_ws(Rest, Stream, Pos + Len + 2, 0, State, Acc2);
-parse_CharData_ws(<<$\r, Rest/bitstring>>, Stream, Pos, Len, State, Acc) ->
-    Acc1 = ?ACC(Stream, Pos, Len, Acc),
-    Acc2 = ?APPEND(<<$\n>>, Acc1),
-    parse_CharData_ws(Rest, Stream, Pos + 1, 0, State, Acc2);
 parse_CharData_ws(<<Char, Rest/bitstring>>, Stream, Pos, Len, State, Acc) when ?WS(Char) ->
     parse_CharData_ws(Rest, Stream, Pos, Len + 1, State, Acc);
 parse_CharData_ws(Bytes = <<$<, _/bitstring>>, Stream, Pos, Len, State, Acc) ->
@@ -358,14 +361,6 @@ parse_CData(Rest, Stream, Pos, State) ->
     {Text, Bytes1, _, _, State1} = parse_CData(Rest, Stream, Pos, 0, State, []),
     event_characters(to_binary(Text), set_state_pos(State1, Bytes1)).
 
-parse_CData(<<$\r, $\n, Rest/bitstring>>, Stream, Pos, Len, State, Acc) ->
-    Acc1 = ?ACC(Stream, Pos, Len, Acc),
-    Acc2 = ?APPEND(<<$\n>>, Acc1),
-    ?FUNCTION_NAME(Rest, Stream, Pos + Len + 2, 0, State, Acc2);
-parse_CData(<<$\r, Rest/bitstring>>, Stream, Pos, Len, State, Acc) ->
-    Acc1 = ?ACC(Stream, Pos, Len, Acc),
-    Acc2 = ?APPEND(<<$\n>>, Acc1),
-    ?FUNCTION_NAME(Rest, Stream, Pos + Len + 1, 0, State, Acc2);
 parse_CData(<<"]]>"/utf8, Rest/bitstring>>, Stream, Pos, Len, State, Acc) ->
     Text = ?ACC(Stream, Pos, Len, Acc),
     {Text, Rest, Stream, Pos + Len + 3, State};
@@ -668,64 +663,47 @@ parse_element_lt(
     Pos,
     #ys_state_simple{
         tags = Tags,
-        inscope_ns = [LastNss | _] = Nss,
         position = P
     } = State
 ) ->
-    {{NameP, NameL}, ?MATCH1} = parse_QName(?MATCH),
+    {Name, ?MATCH1} = parse_Name(?MATCH),
     case Bytes1 of
         <<$>, Bytes2/bitstring>> ->
-            QName = expand_qname(NameP, NameL, LastNss),
             State2 = #ys_state_simple{
                 position = [content | P],
-                tags = [QName | Tags],
-                inscope_ns = [LastNss | Nss],
+                tags = [Name | Tags],
                 rest_stream = Bytes2
             },
-            event_startElement(QName, [], [], State2);
+            event_startElement(Name, [], State2);
         <<$/, Rest/bitstring>> ->
-            QName = expand_qname(NameP, NameL, LastNss),
             parse_element_empty(
                 Rest,
                 Stream1,
                 Pos1 + 1,
                 State1,
-                QName,
-                [],
+                Name,
                 [],
                 P,
                 Tags
             );
         _ ->
-            {{Ns, As}, ?MATCH2} = parse_attributes(
-                ?MATCH1,
-                [],
-                [],
-                {NameP, NameL}
-            ),
-            NewNsMap = namespace_map_from_list(Ns),
-            NamespaceMap = merge_namespaces(LastNss, NewNsMap),
-            QName = expand_qname(NameP, NameL, NamespaceMap),
-            As1 = qualify_attribute_names(As, NamespaceMap),
-            ok = check_attributes(As1, State2),
+            {As, ?MATCH2} = parse_attributes(?MATCH1, [], Name),
             case Bytes2 of
                 <<$>, Bytes3/bitstring>> ->
                     State3 = #ys_state_simple{
                         position = [content | P],
-                        tags = [QName | Tags],
-                        inscope_ns = [NamespaceMap | Nss],
+                        tags = [Name | Tags],
                         rest_stream = Bytes3
                     },
-                    event_startElement(QName, As1, Ns, State3);
+                    event_startElement(Name, As, State3);
                 <<$/, Rest/bitstring>> ->
                     parse_element_empty(
                         Rest,
                         Stream2,
                         Pos2 + 1,
                         State2,
-                        QName,
-                        As1,
-                        Ns,
+                        Name,
+                        As,
                         P,
                         Tags
                     );
@@ -734,22 +712,8 @@ parse_element_lt(
             end
     end.
 
-check_attributes([], _State) -> ok;
-check_attributes(Atts, State) -> check_attributes(Atts, #{}, State).
-
-check_attributes([{{?XML_NS, <<"xml">>, <<"space">>}, Value} | _], _, State) when
-    Value =/= <<"preserve">>, Value =/= <<"default">>
-->
-    fatal_error(bad_xml_space, State);
-check_attributes([{{Ns, _, Ln}, _} | _], Acc, State) when is_map_key({Ns, Ln}, Acc) ->
-    fatal_error(duplicate_attribute, {{Ns, Ln}, State});
-check_attributes([{{Ns, _, Ln}, _} | Atts], Acc, State) ->
-    check_attributes(Atts, Acc#{{Ns, Ln} => []}, State);
-check_attributes([], _, _) ->
-    ok.
-
 % misc_post_element
-parse_element_empty(<<$>, Bytes/bitstring>>, _, _, State, QName, Ats, Nss, P, Tags) ->
+parse_element_empty(<<$>, Bytes/bitstring>>, _, _, State, QName, Ats, P, Tags) ->
     Pss =
         case P of
             % Empty root element
@@ -761,8 +725,8 @@ parse_element_empty(<<$>, Bytes/bitstring>>, _, _, State, QName, Ats, Nss, P, Ta
         tags = [QName | Tags],
         rest_stream = Bytes
     },
-    event_startElement(QName, Ats, Nss, State1);
-parse_element_empty(_, _, _, State, _, _, _, _, _) ->
+    event_startElement(QName, Ats, State1);
+parse_element_empty(_, _, _, State, _, _, _, _) ->
     fatal_error(bad_element, State).
 
 %%----------------------------------------------------------------------
@@ -781,45 +745,28 @@ parse_element_empty(_, _, _, State, _, _, _, _, _) ->
 %%    [VC: Attribute Value Type]
 %%----------------------------------------------------------------------
 parse_Attribute(?MATCH) ->
-    {{P, L}, ?MATCH1} = parse_QName(?MATCH),
+    {Name, ?MATCH1} = parse_Name(?MATCH),
     {Bytes2, Stream2, Pos2, State2} = parse_Eq(?MATCH1),
     {Value, ?MATCH3} = parse_AttValue(?MATCH2),
-    {{P, L, Value}, ?MATCH3}.
+    {{Name, Value}, ?MATCH3}.
 
-parse_attributes(Bytes = <<$>, _/bitstring>>, Stream, Pos, State, Nss, Atts, _) ->
-    {{Nss, Atts}, ?MATCH};
-parse_attributes(?MATCH, Nss, Atts, EName) ->
+parse_attributes(Bytes = <<C, _/bitstring>>, Stream, Pos, State, Atts, _) when C == $>; C == $/ ->
+    {Atts, ?MATCH};
+parse_attributes(?MATCH, Atts, EName) ->
     case maybe_consume_s(?MATCH) of
+        {_, <<C, _/bitstring>> = ?MATCH1} when C == $>; C == $/ ->
+            {Atts, ?MATCH1};
         {false, ?MATCH1} ->
-            {{Nss, Atts}, ?MATCH1};
-        {true, <<C, _/bitstring>> = ?MATCH1} when C == $>; C == $/ ->
-            {{Nss, Atts}, ?MATCH1};
+            {Atts, ?MATCH1};
         {true, ?MATCH1} ->
-            {Att, ?MATCH2} = parse_Attribute(?MATCH1),
-            parse_attributes_(Att, ?MATCH2, Nss, Atts, EName)
+            {AttNameVal, ?MATCH2} = parse_Attribute(?MATCH1),
+            case Bytes2 of
+                <<C, _/bitstring>> when C == $>; C == $/ ->
+                    {[AttNameVal | Atts], ?MATCH2};
+                _ ->
+                    parse_attributes(?MATCH2, [AttNameVal | Atts], EName)
+            end
     end.
-
-parse_attributes_({<<>>, <<"xmlns">>, ?XML_NS}, _, _, _, State, _, _, _) ->
-    fatal_error(rebinding_prefix, {<<"xml">>, State});
-parse_attributes_({<<>>, <<"xmlns">>, ?XMLNS_NS}, _, _, _, State, _, _, _) ->
-    fatal_error(rebinding_prefix, {<<"xmlns">>, State});
-parse_attributes_({<<>>, <<"xmlns">>, Val}, ?MATCH, Nss, Atts, EName) ->
-    parse_attributes(?MATCH, [{normalize_attribute_value(Val), <<>>} | Nss], Atts, EName);
-parse_attributes_({<<"xmlns">>, Px, <<>>}, _, _, _, State, _, _, _) ->
-    fatal_error(unbinding_prefix, {Px, State});
-parse_attributes_({<<"xmlns">>, <<"xml">>, Val}, _, _, _, State, _, _, _) when Val =/= ?XML_NS ->
-    fatal_error(rebinding_prefix, {<<"xml">>, State});
-parse_attributes_({<<"xmlns">>, Px, ?XML_NS}, _, _, _, State, _, _, _) when Px =/= <<"xml">> ->
-    fatal_error(rebinding_prefix, {<<"xml">>, State});
-parse_attributes_({<<"xmlns">>, _, ?XMLNS_NS}, _, _, _, State, _, _, _) ->
-    fatal_error(rebinding_prefix, {<<"xmlns">>, State});
-parse_attributes_({<<"xmlns">>, <<"xmlns">>, _}, _, _, _, State, _, _, _) ->
-    fatal_error(rebinding_prefix, {<<"xmlns">>, State});
-parse_attributes_({<<"xmlns">>, Px, Val}, ?MATCH, Nss, Atts, EName) ->
-    parse_attributes(?MATCH, [{normalize_attribute_value(Val), Px} | Nss], Atts, EName);
-parse_attributes_({Px, Ln, Val}, ?MATCH, Nss, Atts, EName) ->
-    Norm = normalize_attribute_value(Val),
-    parse_attributes(?MATCH, Nss, [{Px, Ln, Norm} | Atts], EName).
 
 %%----------------------------------------------------------------------
 %% [10] AttValue ::= '"' ([^<&"] | Reference)* '"' |  "'" ([^<&'] | Reference)* "'"
@@ -831,10 +778,6 @@ parse_AttValue(<<$", Rest/bitstring>>, Stream, Pos, State) ->
 parse_AttValue(_, _, _, State) ->
     fatal_error(bad_attval, State).
 
-parse_AttValue_sq(<<$\r, $\n, Rest/bitstring>>, Stream, Pos, Len, State, Acc) ->
-    Acc1 = ?ACC(Stream, Pos, Len, Acc),
-    Acc2 = ?APPEND(<<$\s>>, Acc1),
-    ?FUNCTION_NAME(Rest, Stream, Pos + Len + 2, 0, State, Acc2);
 parse_AttValue_sq(<<$', Rest/bitstring>>, Stream, Pos, Len, State, Acc) ->
     Value = ?ACC(Stream, Pos, Len, Acc),
     {to_binary(Value), Rest, Stream, Pos + Len + 1, State};
@@ -846,17 +789,9 @@ parse_AttValue_sq(<<$&, Rest/bitstring>>, Stream, Pos, Len, State, Acc) ->
     Acc2 = ?APPEND(Ref, Acc1),
     ?FUNCTION_NAME(Bytes1, Stream1, Pos1, 0, State1, Acc2);
 parse_AttValue_sq(<<Char, Rest/bitstring>>, Stream, Pos, Len, State, Acc) when ?WS(Char) ->
-    Acc1 = ?ACC(Stream, Pos, Len, Acc),
-    Acc2 = ?APPEND(<<$\s>>, Acc1),
-    ?FUNCTION_NAME(Rest, Stream, Pos + Len + 1, 0, State, Acc2);
+    ?FUNCTION_NAME(Rest, Stream, Pos, Len + 1, State, Acc);
 ?ONECHAR.
 
-parse_AttValue_dq(
-    <<$\r, $\n, Rest/bitstring>>, Stream, Pos, Len, State, Acc
-) ->
-    Acc1 = ?ACC(Stream, Pos, Len, Acc),
-    Acc2 = ?APPEND(<<$\s>>, Acc1),
-    ?FUNCTION_NAME(Rest, Stream, Pos + Len + 2, 0, State, Acc2);
 parse_AttValue_dq(<<$", Rest/bitstring>>, Stream, Pos, Len, State, Acc) ->
     Value = ?ACC(Stream, Pos, Len, Acc),
     {to_binary(Value), Rest, Stream, Pos + Len + 1, State};
@@ -868,37 +803,8 @@ parse_AttValue_dq(<<$&, Rest/bitstring>>, Stream, Pos, Len, State, Acc) ->
     Acc2 = ?APPEND(Ref, Acc1),
     ?FUNCTION_NAME(Bytes1, Stream1, Pos1, 0, State1, Acc2);
 parse_AttValue_dq(<<Char, Rest/bitstring>>, Stream, Pos, Len, State, Acc) when ?WS(Char) ->
-    Acc1 = ?ACC(Stream, Pos, Len, Acc),
-    Acc2 = ?APPEND(<<$\s>>, Acc1),
-    ?FUNCTION_NAME(Rest, Stream, Pos + Len + 1, 0, State, Acc2);
+    ?FUNCTION_NAME(Rest, Stream, Pos, Len + 1, State, Acc);
 ?ONECHAR.
-
-normalize_attribute_value(Value) ->
-    Tokens = get_tokens(Value, Value, 0),
-    Comb = combine_tokens(Tokens),
-    to_binary(Comb).
-
-get_tokens(<<>>, _, _) -> [];
-get_tokens(<<$\s, Rest/bitstring>>, Value, Pos) -> get_tokens(Rest, Value, Pos + 1);
-get_tokens(Bytes, Value, Pos) -> get_tokens(Bytes, Value, Pos, 0, []).
-
-get_tokens(<<$\s, Rest/bitstring>>, Value, Pos, 0, Acc) ->
-    get_tokens(Rest, Value, Pos + 1, 0, Acc);
-get_tokens(<<$\s, Rest/bitstring>>, Value, Pos, Len, Acc) ->
-    get_tokens(Rest, Value, Pos + Len + 1, 0, [binary_part(Value, Pos, Len) | Acc]);
-get_tokens(<<_, Rest/bitstring>>, Value, Pos, Len, Acc) ->
-    get_tokens(Rest, Value, Pos, Len + 1, Acc);
-get_tokens(<<>>, _, _, 0, Acc) ->
-    Acc;
-get_tokens(<<>>, Value, Pos, Len, Acc) ->
-    [binary_part(Value, Pos, Len) | Acc].
-
-combine_tokens([]) -> <<>>;
-combine_tokens([Token]) -> Token;
-combine_tokens([Token | Rest]) -> combine_tokens(Rest, [Token]).
-
-combine_tokens([], Acc) -> Acc;
-combine_tokens([Token | Tokens], Acc) -> combine_tokens(Tokens, [Token | [<<$\s>> | Acc]]).
 
 %%----------------------------------------------------------------------
 %% -[42] ETag ::= '</' Name S? '>'
@@ -909,25 +815,23 @@ parse_ETag(
     Bytes,
     Stream,
     Pos,
-    #ys_state_simple{inscope_ns = [Ns | Nss], position = [_, element | _Ps1], tags = [Tag | Ts]} =
+    #ys_state_simple{position = [_, element | _Ps1], tags = [Tag | Ts]} =
         State
 ) ->
-    {{NameP, NameL}, ?MATCH1} = parse_QName(?MATCH),
+    {Name, ?MATCH1} = parse_Name(?MATCH),
     {_, Bytes2, _, _, State2} = maybe_consume_s(?MATCH1),
     case Bytes2 of
         <<$>, Bytes3/bitstring>> ->
-            QName = expand_qname(NameP, NameL, Ns),
-            case QName of
+            case Name of
                 Tag ->
                     State3 = #ys_state_simple{
                         rest_stream = Bytes3,
-                        inscope_ns = Nss,
                         position = [misc_post_element],
                         tags = Ts
                     },
-                    event_endElement(QName, State3);
+                    event_endElement(Name, State3);
                 _ ->
-                    fatal_error(unmatched_tag, {Tag, QName})
+                    fatal_error(unmatched_tag, {Tag, Name})
             end;
         _ ->
             fatal_error(bad_endtag, State2)
@@ -936,197 +840,43 @@ parse_ETag(
     Bytes,
     Stream,
     Pos,
-    #ys_state_simple{inscope_ns = [Ns | Nss], position = [_ | Ps], tags = [Tag | Ts]} = State
+    #ys_state_simple{position = [_ | Ps], tags = [Tag | Ts]} = State
 ) ->
-    {{NameP, NameL}, ?MATCH1} = parse_QName(?MATCH),
+    {Name, ?MATCH1} = parse_Name(?MATCH),
     case Bytes1 of
         <<$>, Bytes2/bitstring>> ->
-            QName = expand_qname(NameP, NameL, Ns),
-            case QName of
+            case Name of
                 Tag ->
-                    State2 = #ys_state_simple{
-                        rest_stream = Bytes2, inscope_ns = Nss, position = Ps, tags = Ts
-                    },
-                    event_endElement(QName, State2);
+                    State2 = #ys_state_simple{rest_stream = Bytes2, position = Ps, tags = Ts},
+                    event_endElement(Name, State2);
                 _ ->
-                    fatal_error(unmatched_tag, {Tag, QName})
+                    fatal_error(unmatched_tag, {Tag, Name})
             end;
         _ ->
             {_, Bytes2, _, _, State2} = maybe_consume_s(?MATCH1),
             case Bytes2 of
                 <<$>, Bytes3/bitstring>> ->
-                    QName = expand_qname(NameP, NameL, Ns),
-                    case QName of
+                    case Name of
                         Tag ->
                             State3 = #ys_state_simple{
-                                rest_stream = Bytes3, inscope_ns = Nss, position = Ps, tags = Ts
+                                rest_stream = Bytes3, position = Ps, tags = Ts
                             },
-                            event_endElement(QName, State3);
+                            event_endElement(Name, State3);
                         _ ->
-                            fatal_error(unmatched_tag, {Tag, QName})
+                            fatal_error(unmatched_tag, {Tag, Name})
                     end;
                 _ ->
                     fatal_error(bad_endtag, State2)
             end
     end.
 
-%%----------------------------------------------------------------------
-%% [4ns]  NCName ::= Name - (Char* ':' Char*)  /* An XML Name, minus the ":" */
-%%----------------------------------------------------------------------
-parse_NCName(<<Char, Rest/bitstring>>, Stream, Pos, State) when
-    Char >= $a, Char =< $z; Char >= $A, Char =< $Z; Char == $_
-->
-    parse_NCName(Rest, Stream, Pos, 1, State, []);
-parse_NCName(<<Char/utf8, Rest/bitstring>>, Stream, Pos, State) when
-    Char >= 16#C0, Char =< 16#D6;
-    Char >= 16#D8, Char =< 16#F6;
-    Char >= 16#F8, Char =< 16#2FF;
-    Char >= 16#370, Char =< 16#37D;
-    Char >= 16#37F, Char =< 16#7FF
-->
-    parse_NCName(Rest, Stream, Pos, 2, State, []);
-parse_NCName(<<Char/utf8, Rest/bitstring>>, Stream, Pos, State) when
-    Char >= 16#800, Char =< 16#1FFF;
-    Char >= 16#200C, Char =< 16#200D;
-    Char >= 16#2070, Char =< 16#218F;
-    Char >= 16#2C00, Char =< 16#2FEF;
-    Char >= 16#3001, Char =< 16#D7FF;
-    Char >= 16#F900, Char =< 16#FDCF;
-    Char >= 16#FDF0, Char =< 16#FFFD
-->
-    parse_NCName(Rest, Stream, Pos, 3, State, []);
-parse_NCName(<<Char/utf8, Rest/bitstring>>, Stream, Pos, State) when
-    Char >= 16#10000, Char =< 16#EFFFF
-->
-    parse_NCName(Rest, Stream, Pos, 4, State, []);
-parse_NCName(<<Char/utf8, _Rest/bitstring>>, _, _, _) ->
-    fatal_error(bad_name, Char);
-parse_NCName(_, _, _, State) ->
-    fatal_error(bad_name, State).
-
--define(NCNameChar(Char),
-    ((Char >= $a andalso Char =< $z) orelse
-        (Char >= $A andalso Char =< $Z) orelse
-        Char == $_ orelse
-        Char == $- orelse
-        (Char >= $0 andalso Char =< $9) orelse
-        Char == $.)
-).
-
-parse_NCName(<<Char, _/bitstring>> = Bytes, Stream, Pos, Len, State, Acc) when
-    ?WS(Char);
-    Char == $:;
-    Char == $=
-->
-    Acc1 = ?ACC(Stream, Pos, Len, Acc),
-    {to_binary(Acc1), Bytes, Stream, Pos + Len, State};
-parse_NCName(<<Char, Char1, Char2, Char3, Rest/bitstring>>, Stream, Pos, Len, State, Acc) when
-    ?NCNameChar(Char),
-    ?NCNameChar(Char1),
-    ?NCNameChar(Char2),
-    ?NCNameChar(Char3)
-->
-    parse_NCName(Rest, Stream, Pos, Len + 4, State, Acc);
-parse_NCName(<<Char, Char1, Char2, Rest/bitstring>>, Stream, Pos, Len, State, Acc) when
-    ?NCNameChar(Char), ?NCNameChar(Char1), ?NCNameChar(Char2)
-->
-    parse_NCName(Rest, Stream, Pos, Len + 3, State, Acc);
-parse_NCName(<<Char, Char1, Rest/bitstring>>, Stream, Pos, Len, State, Acc) when
-    ?NCNameChar(Char), ?NCNameChar(Char1)
-->
-    parse_NCName(Rest, Stream, Pos, Len + 2, State, Acc);
-parse_NCName(<<Char, Rest/bitstring>>, Stream, Pos, Len, State, Acc) when ?NCNameChar(Char) ->
-    parse_NCName(Rest, Stream, Pos, Len + 1, State, Acc);
-parse_NCName(<<Char, _/bitstring>> = Bytes, Stream, Pos, Len, State, Acc) when Char < 16#80 ->
-    Acc1 = ?ACC(Stream, Pos, Len, Acc),
-    {to_binary(Acc1), Bytes, Stream, Pos + Len, State};
-parse_NCName(<<Char/utf8, Rest/bitstring>> = Bytes, Stream, Pos, Len, State, Acc) ->
-    if
-        Char == 16#B7;
-        Char >= 16#C0, Char =< 16#D6;
-        Char >= 16#D8, Char =< 16#F6;
-        Char >= 16#F8, Char =< 16#37D;
-        Char >= 16#37F, Char =< 16#7FF ->
-            parse_NCName(Rest, Stream, Pos, Len + 2, State, Acc);
-        Char < 16#800 ->
-            Acc1 = ?ACC(Stream, Pos, Len, Acc),
-            {Acc1, Bytes, Stream, Pos + Len, State};
-        Char >= 16#800, Char =< 16#1FFF;
-        Char >= 16#200C, Char =< 16#200D;
-        Char >= 16#203F, Char =< 16#2040;
-        Char >= 16#2070, Char =< 16#218F;
-        Char >= 16#2C00, Char =< 16#2FEF;
-        Char >= 16#3001, Char =< 16#D7FF;
-        Char >= 16#F900, Char =< 16#FDCF;
-        Char >= 16#FDF0, Char =< 16#FFFD ->
-            parse_NCName(Rest, Stream, Pos, Len + 3, State, Acc);
-        Char >= 16#10000, Char =< 16#EFFFF ->
-            parse_NCName(Rest, Stream, Pos, Len + 4, State, Acc);
-        true ->
-            Acc1 = ?ACC(Stream, Pos, Len, Acc),
-            {to_binary(Acc1), Bytes, Stream, Pos + Len, State}
-    end;
-parse_NCName(Bytes, Stream, Pos, Len, State, Acc) ->
-    Acc1 = ?ACC(Stream, Pos, Len, Acc),
-    {to_binary(Acc1), Bytes, Stream, Pos + Len, State}.
-
-%%----------------------------------------------------------------------
-%% [7ns]  QName               ::=       PrefixedName | UnprefixedName
-%% [8ns]  PrefixedName        ::=       Prefix ':' LocalPart
-%% [9ns]  UnprefixedName      ::=       LocalPart
-%% [10ns] Prefix              ::=       NCName
-%% [11ns] LocalPart           ::=       NCName
-%%----------------------------------------------------------------------
-parse_QName(?MATCH) ->
-    {Name1, ?MATCH1} = parse_NCName(?MATCH),
-    parse_QName_(?MATCH1, Name1).
-
-parse_QName_(<<$:, Rest/bitstring>>, Stream, Pos, State, Name1) ->
-    {Name2, ?MATCH2} = parse_NCName(Rest, Stream, Pos + 1, State),
-    {{to_binary(Name1), to_binary(Name2)}, ?MATCH2};
-parse_QName_(?MATCH, Name1) ->
-    {{<<>>, to_binary(Name1)}, ?MATCH}.
-
-qualify_attribute_names([], _) -> [];
-qualify_attribute_names(Atts, Nss) -> [{expand_attribute_qname(P, L, Nss), V} || {P, L, V} <- Atts].
-
-expand_qname(<<>>, L, none) ->
-    {<<>>, <<>>, L};
-expand_qname(<<"xml">>, L, _) ->
-    {?XML_NS, <<"xml">>, L};
-expand_qname(P, L, Nss) ->
-    case Nss of
-        #{P := N} ->
-            {N, P, L};
-        _ ->
-            fatal_error(unknown_prefix, P)
-    end.
-
-expand_attribute_qname(<<>>, L, _) -> {<<>>, <<>>, L};
-expand_attribute_qname(P, L, Nss) -> expand_qname(P, L, Nss).
-
 set_next_parser_position(Pos, #ys_state_simple{position = S} = State) ->
     State#ys_state_simple{position = [Pos | S]}.
 
-namespace_map_from_list([]) -> none;
-namespace_map_from_list(List) -> namespace_map_from_list(List, #{}).
-
-namespace_map_from_list([{_, P} | _], Map) when is_map_key(Map, P) ->
-    fatal_error(duplicate_prefix, P);
-namespace_map_from_list([{U, P} | T], Map) ->
-    namespace_map_from_list(T, Map#{P => U});
-namespace_map_from_list([], Map) ->
-    Map.
-
-merge_namespaces(none, none) -> none;
-merge_namespaces(none, NewNsMap) -> maps:merge(#{<<>> => <<>>}, NewNsMap);
-merge_namespaces(LastNss, none) -> LastNss;
-merge_namespaces(LastNss, NewNsMap) -> maps:merge(LastNss, NewNsMap).
-
 fatal_error(Reason, State) -> error(Reason, [State]).
 
-set_state_pos(#ys_state_simple{position = Ps, tags = Ts, inscope_ns = Is}, Bytes) ->
-    #ys_state_simple{rest_stream = Bytes, position = Ps, tags = Ts, inscope_ns = Is}.
+set_state_pos(#ys_state_simple{position = Ps, tags = Ts}, Bytes) ->
+    #ys_state_simple{rest_stream = Bytes, position = Ps, tags = Ts}.
 
 resolve_general_entity(<<"amp">>, _, _) ->
     {gen, <<"&">>};
@@ -1156,8 +906,8 @@ event_endDocument(State) ->
     Event = endDocument,
     {Event, State}.
 
-event_startElement(QName, Attributes, Namespaces, State) ->
-    Event = {startElement, QName, Attributes, Namespaces},
+event_startElement(QName, Attributes, State) ->
+    Event = {startElement, QName, Attributes},
     {Event, State}.
 
 event_endElement(QName, State) ->

@@ -112,19 +112,6 @@
     qname := qname()
 }.
 
--type xml_attribute() :: #{
-    type := attribute,
-    line := location(),
-    % QName for this attribute.
-    qname := qname(),
-    % The normalized value of this attribute.
-    value := binary(),
-    % The type of this attribute, default is cdata.
-    dtd_type => dtd_type(),
-    % A flag indicating whether this attribute was actually specified in the start-tag of its element, or was defaulted from the schema.
-    specified => boolean()
-}.
-
 -type xml_characters() :: #{
     type := characters,
     line := location(),
@@ -154,13 +141,20 @@
     data := binary()
 }.
 
--type xml_namespace() :: #{
-    type := namespace,
-    line := location(),
+-type xml_attribute() :: {
+    % Prefix of this attribute QName.
+    Prefix :: binary(),
+    % Local part of this attribute QName.
+    LocalPart :: binary(),
+    % The normalized value of this attribute.
+    Value :: binary()
+}.
+
+-type xml_namespace() :: {
     % The uri bound to the prefix of this namespace
-    uri := binary(),
+    Uri :: binary(),
     % The prefix, <<>> if this is a default namespace declaration.
-    prefix := binary()
+    Prefix :: binary()
 }.
 
 -type xml_event() ::

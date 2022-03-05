@@ -68,13 +68,11 @@ next_event_content(Stream, State) ->
             next_event(State1)
     end.
 
-add_element_pos(#ys_state_simple{rest_stream = Stream, position = Ps, tags = Ts, inscope_ns = Is}) ->
-    #ys_state_simple{rest_stream = Stream, position = [element | Ps], tags = Ts, inscope_ns = Is}.
+add_element_pos(#ys_state_simple{rest_stream = Stream, position = Ps, tags = Ts}) ->
+    #ys_state_simple{rest_stream = Stream, position = [element | Ps], tags = Ts}.
 
-trim_pos_tag(#ys_state_simple{
-    rest_stream = Stream, position = [_ | Ps], tags = [_ | Ts], inscope_ns = Is
-}) ->
-    #ys_state_simple{rest_stream = Stream, position = Ps, tags = Ts, inscope_ns = Is}.
+trim_pos_tag(#ys_state_simple{rest_stream = Stream, position = [_ | Ps], tags = [_ | Ts]}) ->
+    #ys_state_simple{rest_stream = Stream, position = Ps, tags = Ts}.
 
 fatal_error(Reason, State) ->
     error(Reason, [State]).
