@@ -54,7 +54,11 @@
     % Element declarations
     elems := #{Name :: binary() := empty | any | mixed | {mixed, [binary()]}},
     % Attribute List declarations
-    atts := #{Elem :: binary() := [term()]},
+    atts := #{
+        {ElemPx :: binary(), ElemLn :: binary()} := #{
+            {AttPx :: binary(), AttLn :: binary()} := term()
+        }
+    },
     % Notation declarations
     nots := #{Name :: binary() := {binary(), binary()}},
     % Entities used in the document content
@@ -142,10 +146,8 @@
 }.
 
 -type xml_attribute() :: {
-    % Prefix of this attribute QName.
-    Prefix :: binary(),
-    % Local part of this attribute QName.
-    LocalPart :: binary(),
+    % Attribute QName.
+    QName :: qname(),
     % The normalized value of this attribute.
     Value :: binary()
 }.

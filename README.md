@@ -50,11 +50,12 @@ It works mostly in the same way as the full version, except for:
 ```erlang
 kinda_equal(Filename1, Filename2) ->
     % UTF-16 file with external DTD and full of whitespace nodes
-    LhState = yaccety_sax:stream(<<>>, [
+    {Cont, Init} = ys_utils:trancoding_file_continuation(Filename1),
+    LhState = yaccety_sax:stream(Init, [
         {whitespace, false},
         {comments, false},
         {proc_inst, false},
-        {continuation, ys_utils:trancoding_file_continuation(Filename1)},
+        {continuation, {Cont, <<>>}},
         {base, filename:dirname(Filename1)},
         {external, fun ys_utils:external_file_reader/2}
     ]),

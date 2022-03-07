@@ -2294,21 +2294,44 @@ fill_default_attributes(Atts, DAtts, State) ->
                 _ -> normalize_attribute_value(Fixed2)
             end}
      || {{Px, Ln}, {Type, {DefType, Fixed}}} <- maps:to_list(DAtts),
+        Px =/= <<"xmlns">>,
         DefType == value orelse DefType == fixed,
+        not lists:any(fun({AttPx, AttLn, _AttVal}) -> {AttPx, AttLn} == {Px, Ln} end, Atts),
         Fixed2 <- [parse_AttValue_x(Fixed, Fixed, 0, 0, State, [])]
     ] ++ Atts.
 
+fill_default_namespaces(Nss, [], _) ->
+    Nss;
+fill_default_namespaces(Nss, DAtts, State) ->
+    [
+        {
+            case Type of
+                cdata -> Fixed2;
+                _ -> normalize_attribute_value(Fixed2)
+            end,
+            NsPx
+        }
+     || {{Xmlns, NsPx}, {Type, {DefType, Fixed}}} <- maps:to_list(DAtts),
+        Xmlns == <<"xmlns">>,
+        DefType == value orelse DefType == fixed,
+        not lists:any(fun({_Uri, NsPx1}) -> NsPx1 == NsPx end, Nss),
+        Fixed2 <- [parse_AttValue_x(Fixed, Fixed, 0, 0, State, [])]
+    ] ++ Nss.
+
 parse_attributes(Bytes = <<$>/utf8, _/bitstring>>, Stream, Pos, State, Nss, Atts, _, AttList) ->
     NewAtts = fill_default_attributes(Atts, AttList, State),
-    {{Nss, NewAtts}, ?MATCH};
+    NewNss = fill_default_namespaces(Nss, AttList, State),
+    {{NewNss, NewAtts}, ?MATCH};
 parse_attributes(?MATCH, Nss, Atts, EName, AttList) ->
     case maybe_consume_s(?MATCH) of
         {false, ?MATCH1} ->
             NewAtts = fill_default_attributes(Atts, AttList, State1),
-            {{Nss, NewAtts}, ?MATCH1};
+            NewNss = fill_default_namespaces(Nss, AttList, State),
+            {{NewNss, NewAtts}, ?MATCH1};
         {true, <<C/utf8, _/bitstring>> = ?MATCH1} when C == $>; C == $/ ->
             NewAtts = fill_default_attributes(Atts, AttList, State1),
-            {{Nss, NewAtts}, ?MATCH1};
+            NewNss = fill_default_namespaces(Nss, AttList, State),
+            {{NewNss, NewAtts}, ?MATCH1};
         {true, ?MATCH1} ->
             {Att, ?MATCH2} = parse_Attribute(?MATCH1),
             parse_attributes_(Att, ?MATCH2, Nss, Atts, EName, AttList)
