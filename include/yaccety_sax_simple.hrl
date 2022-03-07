@@ -6,8 +6,7 @@
 
 -type qname() ::
     % Prefix and Local part of this QName.
-    PrefixLocalPart :: binary()
-.
+    PrefixLocalPart :: binary().
 
 -type xml_startDocument() :: {
     startDocument,
