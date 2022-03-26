@@ -634,7 +634,7 @@ parse_Reference_name(?MATCH, Type) ->
 parse_Comment(?MATCH) ->
     {Text, ?MATCH1} = parse_Comment(Bytes, Stream, Pos, 0, State, []),
     case State#ys_state.comments of
-        _ when hd(State#ys_state.position) == dtd -> {{comment, Text}, ?MATCH1};
+        _ when hd(State#ys_state.position) == ?dtd -> {{comment, Text}, ?MATCH1};
         false -> State1;
         true -> yaccety_sax:event_comment(Text, set_state_pos(State1, Bytes1))
     end.
@@ -720,7 +720,7 @@ parse_PI(?MATCH) ->
     case IsWs of
         false when Data =/= <<>> -> fatal_error(bad_pi, State);
         _ when State#ys_state.proc_inst == false -> State3;
-        _ when hd(State#ys_state.position) == dtd -> {{pi, Name, Data}, ?MATCH3};
+        _ when hd(State#ys_state.position) == ?dtd -> {{pi, Name, Data}, ?MATCH3};
         _ -> yaccety_sax:event_processingInstruction(Name, Data, set_state_pos(State3, Bytes3))
     end.
 
@@ -1738,7 +1738,7 @@ parse_XMLDecl_ltqxml(?MATCH) ->
         end,
     {_, ?MATCH7} = maybe_consume_s(?MATCH6),
     {Bytes8, _, _, State8} = parse_XMLDecl_end(?MATCH7),
-    State9 = set_next_parser_position(misc_pre_dtd, State8),
+    State9 = set_next_parser_position(?misc_pre_dtd, State8),
     yaccety_sax:event_startDocument(
         Version,
         Encoding,
@@ -1777,7 +1777,7 @@ parse_XMLDecl(<<>>, _, _, State) ->
     parse_XMLDecl(Stream1, Stream1, 0, State1);
 parse_XMLDecl(Bytes, _, _, State) ->
     % default declaration
-    State1 = set_next_parser_position(misc_pre_dtd, State),
+    State1 = set_next_parser_position(?misc_pre_dtd, State),
     yaccety_sax:event_startDocument(
         <<"1.0">>,
         <<"UTF-8">>,
@@ -1797,7 +1797,7 @@ parse_XMLDecl_lt({<<"?"/utf8>>, State}) ->
     parse_XMLDecl_ltq(cf(State));
 parse_XMLDecl_lt({Bytes, State}) ->
     % default declaration, came in with one byte, so assuming a prepend is okay here.
-    State1 = set_next_parser_position(misc_pre_dtd, State),
+    State1 = set_next_parser_position(?misc_pre_dtd, State),
     yaccety_sax:event_startDocument(
         <<"1.0">>,
         <<"UTF-8">>,
@@ -1815,7 +1815,7 @@ parse_XMLDecl_ltq({<<"x"/utf8>>, State}) ->
     parse_XMLDecl_ltqx(cf(State));
 parse_XMLDecl_ltq({Bytes, State}) ->
     % default declaration, came in with one byte, so assuming a prepend is okay here.
-    State1 = set_next_parser_position(misc_pre_dtd, State),
+    State1 = set_next_parser_position(?misc_pre_dtd, State),
     yaccety_sax:event_startDocument(
         <<"1.0">>,
         <<"UTF-8">>,
@@ -2031,7 +2031,7 @@ parse_element_lt_no_ns(?MATCH) ->
     case Bytes1 of
         <<$>/utf8, Bytes2/bitstring>> ->
             State2 = State1#ys_state{
-                position = [content | P],
+                position = [?content | P],
                 tags = [QName | Tags],
                 rest_stream = Bytes2
             },
@@ -2052,7 +2052,7 @@ parse_element_lt_no_ns(?MATCH) ->
             case Bytes2 of
                 <<$>/utf8, Bytes3/bitstring>> ->
                     State3 = State2#ys_state{
-                        position = [content | P],
+                        position = [?content | P],
                         tags = [QName | Tags],
                         rest_stream = Bytes3
                     },
@@ -2089,7 +2089,7 @@ parse_element_lt(
         <<$>/utf8, Bytes2/bitstring>> ->
             QName = expand_qname(NameP, NameL, LastNss),
             State2 = State1#ys_state{
-                position = [content | P],
+                position = [?content | P],
                 tags = [QName | Tags],
                 inscope_ns = [LastNss | Nss],
                 rest_stream = Bytes2
@@ -2124,7 +2124,7 @@ parse_element_lt(
             case Bytes2 of
                 <<$>/utf8, Bytes3/bitstring>> ->
                     State3 = State2#ys_state{
-                        position = [content | P],
+                        position = [?content | P],
                         tags = [QName | Tags],
                         inscope_ns = [NamespaceMap | Nss],
                         rest_stream = Bytes3
@@ -2174,7 +2174,7 @@ parse_element_lt(?MATCH) ->
     case Bytes2 of
         <<$>/utf8, Bytes3/bitstring>> ->
             State3 = State2#ys_state{
-                position = [content | P],
+                position = [?content | P],
                 tags = [QName | Tags],
                 inscope_ns = [NamespaceMap | Nss],
                 rest_stream = Bytes3,
@@ -2215,8 +2215,8 @@ parse_element_empty_no_ns(<<$>, Bytes/bitstring>>, _, _, State, QName, Ats, P, T
     Pss =
         case P of
             % Empty root element
-            [element | Ps] -> [empty, misc_post_element | Ps];
-            _ -> [empty | P]
+            [?element | Ps] -> [?empty, ?misc_post_element | Ps];
+            _ -> [?empty | P]
         end,
     State1 = State#ys_state{
         position = Pss,
@@ -2235,8 +2235,8 @@ parse_element_empty(<<$>, Bytes/bitstring>>, _, _, State, QName, Ats, Nss, P, Ta
     Pss =
         case P of
             % Empty root element
-            [element | Ps] -> [empty, misc_post_element | Ps];
-            _ -> [empty | P]
+            [?element | Ps] -> [?empty, ?misc_post_element | Ps];
+            _ -> [?empty | P]
         end,
     State1 = State#ys_state{
         position = Pss,
@@ -2668,14 +2668,14 @@ parse_ETag(
     Bytes,
     Stream,
     Pos,
-    #ys_state{inscope_ns = [Ns | Nss], position = [_, element | _Ps1], tags = [Tag | Ts]} = State
+    #ys_state{inscope_ns = [Ns | Nss], position = [_, ?element | _Ps1], tags = [Tag | Ts]} = State
 ) ->
     {{NameP, NameL}, ?MATCH1} = parse_QName(?MATCH),
     {_, Bytes2, _, _, State2} = maybe_consume_s(?MATCH1),
     case Bytes2 of
         <<$>/utf8, Bytes3/bitstring>> ->
             QName = expand_qname(NameP, NameL, Ns),
-            State3 = State2#ys_state{inscope_ns = Nss, position = [misc_post_element], tags = Ts},
+            State3 = State2#ys_state{inscope_ns = Nss, position = [?misc_post_element], tags = Ts},
             case QName of
                 Tag ->
                     yaccety_sax:event_endElement(QName, set_state_pos(State3, Bytes3));
@@ -2726,14 +2726,14 @@ parse_ETag_no_ns(
     Bytes,
     Stream,
     Pos,
-    #ys_state{position = [_, element | _Ps1], tags = [Tag | Ts]} = State
+    #ys_state{position = [_, ?element | _Ps1], tags = [Tag | Ts]} = State
 ) ->
     {{NameP, NameL}, ?MATCH1} = parse_QName(?MATCH),
     {_, Bytes2, _, _, State2} = maybe_consume_s(?MATCH1),
     case Bytes2 of
         <<$>/utf8, Bytes3/bitstring>> ->
             QName = {<<>>, NameP, NameL},
-            State3 = State2#ys_state{position = [misc_post_element], tags = Ts},
+            State3 = State2#ys_state{position = [?misc_post_element], tags = Ts},
             case QName of
                 Tag ->
                     yaccety_sax:event_endElement(QName, set_state_pos(State3, Bytes3));

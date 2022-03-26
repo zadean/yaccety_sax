@@ -1,6 +1,16 @@
+% Event stack positions
+-define(document, 0).
+-define(content, 1).
+-define(element, 2).
+-define(empty, 3).
+-define(misc_pre_dtd, 4).
+-define(misc_post_dtd, 5).
+-define(dtd, 6).
+-define(misc_post_element, 7).
+
 -record(ys_state_simple, {
     rest_stream = <<>>,
-    position = [document],
+    position = [?document],
     tags = []
 }).
 

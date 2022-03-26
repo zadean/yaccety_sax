@@ -101,7 +101,7 @@ next_event(#ys_state{position = []}) ->
     {error, no_event};
 next_event(#ys_state{position = [Position | Ps], rest_stream = Stream} = State) ->
     case Position of
-        content ->
+        ?content ->
             case ys_parse:parse_content(Stream, State) of
                 {no_bytes, State1} ->
                     fatal_error(illegal_data, {Stream, State1});
@@ -110,43 +110,40 @@ next_event(#ys_state{position = [Position | Ps], rest_stream = Stream} = State) 
                 State1 ->
                     next_event(State1)
             end;
-        empty ->
+        ?empty ->
             [T | Ts] = State#ys_state.tags,
             event_endElement(T, State#ys_state{position = Ps, tags = Ts});
-        document ->
+        ?document ->
             % sets position to misc_pre_dtd
             ys_parse:parse_XMLDecl(Stream, State);
-        fragment ->
-            % sets position to misc_pre_dtd
-            ys_parse:parse_XMLDecl(Stream, State);
-        misc_pre_dtd ->
+        ?misc_pre_dtd ->
             case ys_parse:parse_Misc(Stream, State) of
                 {no_bytes, State1} ->
                     fatal_error(illegal_data, {Stream, State1});
                 {Event, State1} ->
                     {Event, State1};
                 State1 ->
-                    next_event(State1#ys_state{position = [dtd | Ps]})
+                    next_event(State1#ys_state{position = [?dtd | Ps]})
             end;
-        dtd ->
+        ?dtd ->
             case ys_parse:parse_doctypedecl(Stream, State) of
                 {Event, State1} ->
-                    {Event, State1#ys_state{position = [misc_post_dtd | Ps]}};
+                    {Event, State1#ys_state{position = [?misc_post_dtd | Ps]}};
                 State1 ->
-                    next_event(State1#ys_state{position = [element | Ps]})
+                    next_event(State1#ys_state{position = [?element | Ps]})
             end;
-        misc_post_dtd ->
+        ?misc_post_dtd ->
             case ys_parse:parse_Misc(Stream, State) of
                 {no_bytes, State1} ->
                     fatal_error(missing_element, {Stream, State1});
                 {Event, State1} ->
                     {Event, State1};
                 State1 ->
-                    next_event(State1#ys_state{position = [element | Ps]})
+                    next_event(State1#ys_state{position = [?element | Ps]})
             end;
-        element ->
+        ?element ->
             ys_parse:parse_element(Stream, State);
-        misc_post_element ->
+        ?misc_post_element ->
             case ys_parse:parse_Misc(Stream, State) of
                 {no_bytes, State1} ->
                     event_endDocument(State1#ys_state{rest_stream = <<>>});

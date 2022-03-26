@@ -571,7 +571,7 @@ parse_XMLDecl_ltqxml(?MATCH) ->
         end,
     {_, ?MATCH7} = maybe_consume_s(?MATCH6),
     {Bytes8, _, _, State8} = parse_XMLDecl_end(?MATCH7),
-    State9 = set_next_parser_position(misc_post_dtd, State8),
+    State9 = set_next_parser_position(?misc_post_dtd, State8),
     event_startDocument(
         Version,
         Encoding,
@@ -589,7 +589,7 @@ parse_XMLDecl(<<"<?xml"/utf8, Rest/bitstring>>, Stream, Pos, State) ->
     parse_XMLDecl_ltqxml(Rest, Stream, Pos + 5, State);
 parse_XMLDecl(Bytes, _, _, State) ->
     % default declaration
-    State1 = set_next_parser_position(misc_post_dtd, State),
+    State1 = set_next_parser_position(?misc_post_dtd, State),
     event_startDocument(
         <<"1.0">>,
         <<"UTF-8">>,
@@ -670,7 +670,7 @@ parse_element_lt(
     case Bytes1 of
         <<$>, Bytes2/bitstring>> ->
             State2 = #ys_state_simple{
-                position = [content | P],
+                position = [?content | P],
                 tags = [Name | Tags],
                 rest_stream = Bytes2
             },
@@ -691,7 +691,7 @@ parse_element_lt(
             case Bytes2 of
                 <<$>, Bytes3/bitstring>> ->
                     State3 = #ys_state_simple{
-                        position = [content | P],
+                        position = [?content | P],
                         tags = [Name | Tags],
                         rest_stream = Bytes3
                     },
@@ -717,8 +717,8 @@ parse_element_empty(<<$>, Bytes/bitstring>>, _, _, State, QName, Ats, P, Tags) -
     Pss =
         case P of
             % Empty root element
-            [element | Ps] -> [empty, misc_post_element | Ps];
-            _ -> [empty | P]
+            [?element | Ps] -> [?empty, ?misc_post_element | Ps];
+            _ -> [?empty | P]
         end,
     State1 = State#ys_state_simple{
         position = Pss,
@@ -815,7 +815,7 @@ parse_ETag(
     Bytes,
     Stream,
     Pos,
-    #ys_state_simple{position = [_, element | _Ps1], tags = [Tag | Ts]} =
+    #ys_state_simple{position = [_, ?element | _Ps1], tags = [Tag | Ts]} =
         State
 ) ->
     {Name, ?MATCH1} = parse_Name(?MATCH),
@@ -826,7 +826,7 @@ parse_ETag(
                 Tag ->
                     State3 = #ys_state_simple{
                         rest_stream = Bytes3,
-                        position = [misc_post_element],
+                        position = [?misc_post_element],
                         tags = Ts
                     },
                     event_endElement(Name, State3);
