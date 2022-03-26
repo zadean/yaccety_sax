@@ -23,18 +23,15 @@ next_event(#ys_state_simple{position = []} = State) ->
     {endDocument, State};
 next_event(#ys_state_simple{position = [Position | _], rest_stream = Stream} = State) ->
     case Position of
-        content ->
+        ?content ->
             next_event_content(Stream, State);
-        empty ->
+        ?empty ->
             [T | _] = State#ys_state_simple.tags,
             ys_parse_simple:event_endElement(T, trim_pos_tag(State));
-        document ->
+        ?document ->
             % sets position to misc_post_dtd
             ys_parse_simple:parse_XMLDecl(Stream, State);
-        fragment ->
-            % sets position to misc_post_dtd
-            ys_parse_simple:parse_XMLDecl(Stream, State);
-        misc_post_dtd ->
+        ?misc_post_dtd ->
             case ys_parse_simple:parse_Misc(Stream, State) of
                 {no_bytes, State1} ->
                     fatal_error(missing_element, {Stream, State1});
@@ -43,9 +40,9 @@ next_event(#ys_state_simple{position = [Position | _], rest_stream = Stream} = S
                 State1 ->
                     next_event(add_element_pos(State1))
             end;
-        element ->
+        ?element ->
             ys_parse_simple:parse_element(Stream, State);
-        misc_post_element ->
+        ?misc_post_element ->
             case ys_parse_simple:parse_Misc(Stream, State) of
                 {no_bytes, State1} ->
                     ys_parse_simple:event_endDocument(State1#ys_state_simple{rest_stream = <<>>});

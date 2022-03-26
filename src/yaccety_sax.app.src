@@ -1,6 +1,6 @@
 {application, yaccety_sax, [
     {description, "Fast, StAX-like XML Parser for BEAM Languages"},
-    {vsn, "0.2.3"},
+    {vsn, "0.3.0"},
     {registered, []},
     {applications, [
         kernel,
