@@ -23,7 +23,8 @@
     proc_inst = true,
     standalone = false,
     namespace_aware = true,
-    external = undefined
+    external = undefined,
+    multiple_documents = false
 }).
 
 -type qname() ::
